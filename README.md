@@ -198,8 +198,6 @@ pip install -r requirements.txt
 
 - Elo, A. E. (1978). *The Rating of Chessplayers, Past and Present*. Arco Publishing.
   → [Internet Archive](https://archive.org/details/ratingofchesspla00unse)
-- Silver, N. et al. (2014). *How Our NFL Predictions Work*. FiveThirtyEight.
-  → https://fivethirtyeight.com/methodology/how-our-nfl-predictions-work/
 - FiveThirtyEight NFL ELO Data & Code.
   → https://github.com/fivethirtyeight/data/tree/master/nfl-elo
 
