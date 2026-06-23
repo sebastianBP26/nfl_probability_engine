@@ -1,0 +1,15 @@
+cd nfl-probability-engine
+
+cat > .gitignore << 'EOF'
+# macOS
+.DS_Store
+data/.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+EOF
