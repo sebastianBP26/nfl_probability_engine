@@ -51,6 +51,32 @@ Datos históricos 1999–2025
 
 ---
 
+## Resultados actuales
+
+### Sistema ELO — Brier Score sobre 4,175 juegos REG (2010–2025)
+
+| Modelo | Brier Score | Diferencia vs nulo |
+|---|---|---|
+| Modelo nulo (siempre 50%) | 0.2500 | — |
+| **ELO solo** | **0.2267** | **−0.0233 (60.4% del gap cerrado)** |
+| Vegas (benchmark) | 0.2114 | −0.0386 (100%) |
+
+El sistema ELO cierra el **60% del gap** entre el modelo nulo y Vegas usando
+únicamente el historial de resultados — sin variables de clima, lesiones ni líneas.
+
+### HOME_ADVANTAGE — backtesting sobre 3 candidatos
+
+| Configuración | HA (pts ELO) | Brier Score |
+|---|---|---|
+| Histórico 1999–2025 | 42.2 | 0.2267 |
+| Últimas 10 temporadas | 31.0 | 0.2268 |
+| Últimas 5 temporadas | 27.4 | 0.2269 |
+
+La diferencia entre candidatos es negligible (< 0.0002). Se usa **HA = 42.2**
+calibrado desde el home win rate observado 1999–2025 (56.3%).
+
+---
+
 ## Decisiones de diseño clave
 
 ### Sistema ELO
@@ -58,15 +84,15 @@ Datos históricos 1999–2025
 | Parámetro | Valor | Justificación |
 |---|---|---|
 | `ELO_INICIAL` | 1500 | Convención estándar |
-| `HOME_ADVANTAGE` | 42.2 pts | Calibrado desde home win rate observado 1999–2025 (56.3%) |
+| `HOME_ADVANTAGE` | 42.2 pts | Calibrado desde home win rate observado 1999–2025 (56.3%): `HA = −400 × log₁₀((1/WR)−1)` |
 | `HOME_ADVANTAGE` Super Bowl | 0 | Cancha neutral |
 | `K_REGULAR` | 20 | Validado por FiveThirtyEight (2014) · confirmado con backtesting |
 | `K_PLAYOFFS` | 24 | K × 1.2 · mayor señal informativa por partido eliminatorio |
 | Regresión entre temporadas | 33% | `ELO_t+1 = 0.67 × ELO_final + 0.33 × 1505` |
 | Scope de actualización | REG + WC + DIV + CON + SB | Maximiza información entre temporadas |
 
-> **Nota:** `HOME_ADVANTAGE = 65` (FiveThirtyEight) fue calibrado en era 1990–2015.
-> Los datos 1999–2025 muestran una tendencia declinante del home advantage,
+> **Nota:** `HOME_ADVANTAGE = 65` (FiveThirtyEight) fue calibrado sobre era 1990–2015.
+> Los datos 1999–2025 muestran tendencia declinante del home advantage,
 > por lo que se recalibra desde los datos propios.
 
 ### Modelo predictivo
@@ -88,8 +114,8 @@ Las líneas de Vegas (moneylines convertidas a probabilidades, sin vig) sirven
 como benchmark externo de Brier Score. **No son features del modelo.**
 
 ```
-Benchmark válido: 2007–2025 (~4,500 juegos)
-Missing concentrado en: 1999–2005
+Benchmark válido : 2010–2025 (~4,175 juegos REG)
+Missing Vegas    : concentrado en 1999–2005
 ```
 
 ---
@@ -100,26 +126,24 @@ Missing concentrado en: 1999–2005
 nfl-probability-engine/
 │
 ├── notebooks/
-│   ├── 01_exploratory_analysis.ipynb   # EDA · calibración de parámetros
-│   ├── 02_elo_system.ipynb             # Implementación y validación del ELO
-│   ├── 03_model.ipynb                  # Regresión logística · backtesting
-│   └── 04_monte_carlo.ipynb            # Simulación temporada 2026
+│   ├── 01_exploratory_analysis.ipynb   ✅ EDA · calibración de parámetros
+│   ├── 02_elo_system.ipynb             ✅ Implementación y validación del ELO
+│   ├── 03_model.ipynb                  ⏳ Regresión logística · backtesting
+│   └── 04_monte_carlo.ipynb            ⏳ Simulación temporada 2026
 │
 ├── src/
-│   ├── data_loader.py                  # Carga y limpieza de datos
-│   ├── elo.py                          # Sistema ELO (cálculo y actualización)
-│   ├── model.py                        # Regresión logística y evaluación
-│   ├── simulation.py                   # Motor Monte Carlo
-│   └── utils.py                        # Funciones auxiliares
+│   ├── data_loader.py                  ✅ Carga y limpieza de datos
+│   ├── elo.py                          ✅ Sistema ELO (cálculo y actualización)
+│   ├── model.py                        ⏳ Regresión logística y evaluación
+│   └── simulation.py                   ⏳ Motor Monte Carlo
 │
 ├── data/
-│   ├── raw/                            # No versionado (se regenera con nfl_data_py)
 │   └── processed/
-│       ├── elo_history.csv             # ELO partido a partido 1999–2025
-│       └── elo_final_2025.csv          # Rating final por equipo al cierre de 2025
+│       ├── elo_history.csv             ✅ ELO partido a partido 1999–2025
+│       └── elo_final_2025.csv          ✅ Rating final por equipo al cierre de 2025
 │
-├── results/                            # Outputs de predicciones 2026
 ├── README.md
+├── .gitignore
 └── requirements.txt
 ```
 
@@ -127,11 +151,11 @@ nfl-probability-engine/
 
 ## Fases del proyecto
 
-| Fase | Notebook | Estado | Output |
+| Fase | Notebook | Estado | Output clave |
 |---|---|---|---|
 | 1 · EDA | `01_exploratory_analysis` | ✅ Completo | Parámetros calibrados · Decision Log |
-| 2 · ELO | `02_elo_system` | 🔄 En progreso | `elo_history.csv` · `elo_final_2025.csv` |
-| 3 · Modelo | `03_model` | ⏳ Pendiente | Coeficientes β · Brier Score vs. Vegas |
+| 2 · ELO | `02_elo_system` | ✅ Completo | `elo_history.csv` · `elo_final_2025.csv` · BS=0.2267 |
+| 3 · Modelo | `03_model` | ⏳ Pendiente | Coeficientes β · Brier Score vs Vegas |
 | 4 · Simulación | `04_monte_carlo` | ⏳ Pendiente | Distribución de wins temporada 2026 |
 | 5 · Dashboard | `streamlit_app` | ⏳ Pendiente | App interactiva |
 
@@ -160,12 +184,12 @@ nfl-probability-engine/
 ## Métricas de evaluación
 
 ```
-Métrica principal : Brier Score  (calibración probabilística)
+Métrica principal    : Brier Score  (calibración probabilística)
 Métricas secundarias : Log-Loss · Accuracy · Calibration Curve
-Benchmark : Vegas moneylines (Brier Score de referencia)
-Validación : Ventana expandible
-    → Train 1999–2021 | Test 2022–2024
-    → Train 1999–2022 | Test 2023–2024
+Benchmark            : Vegas moneylines sin vig (2010–2025)
+Validación           : Ventana expandible
+    → Train 1999–2021 | Test 2022–2025
+    → Train 1999–2022 | Test 2023–2025
 ```
 
 ---
@@ -178,7 +202,7 @@ Python 3.11+
 ├── pandas / numpy   — manipulación de datos
 ├── scikit-learn     — regresión logística · métricas
 ├── scipy            — pruebas estadísticas
-├── matplotlib / plotly — visualizaciones
+├── matplotlib       — visualizaciones
 └── streamlit        — dashboard interactivo (Fase 5)
 ```
 
@@ -190,6 +214,12 @@ Python 3.11+
 git clone https://github.com/sebastianBP26/nfl-probability-engine.git
 cd nfl-probability-engine
 pip install -r requirements.txt
+```
+
+Ejecutar los notebooks en orden:
+
+```
+01_exploratory_analysis.ipynb  →  02_elo_system.ipynb  →  03_model.ipynb  →  04_monte_carlo.ipynb
 ```
 
 ---
