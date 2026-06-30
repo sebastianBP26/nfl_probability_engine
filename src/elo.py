@@ -1,7 +1,7 @@
 import itertools
 import pandas as pd
 import numpy as np
-import nfl_data_py as nfl
+import nflreadpy as nfl
 
 
 
@@ -28,7 +28,7 @@ def load_nfl_data(seasons, cols_to_drop = None, franchise_map = None):
                 "LAC": "LAC"
             }
 
-    df = nfl.import_schedules(seasons)
+    df = nfl.load_schedules(seasons=list(range(1999, 2026))).to_pandas()
     df = df.drop(columns=cols_to_drop)
     df["home_team"] = df["home_team"].replace(franchise_map)
     df["away_team"] = df["away_team"].replace(franchise_map)

@@ -8,7 +8,7 @@ from matplotlib.patches import FancyBboxPatch
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from PIL import Image
 from io import BytesIO
-import nfl_data_py as nfl
+import nflreadpy as nfl
 
 # ── Constantes ────────────────────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ def _load_logo_urls():
     """Carga URLs de logos desde nfl_data_py (solo una vez)."""
     global _logo_urls
     if _logo_urls is None:
-        teams_desc = nfl.import_team_desc()
+        teams_desc = nfl.load_teams().to_pandas()
         _logo_urls = dict(zip(
             teams_desc['team_abbr'],
             teams_desc['team_logo_espn']
@@ -103,6 +103,9 @@ def plot_regular_season_standings(results_df, bg_color='#1c1c1e',
     -------
     fig : matplotlib.figure.Figure
     """
+
+    plt.close('all')  
+
     card_bg = '#2c2c2e' if bg_color == '#1c1c1e' else '#1a1f2e'
 
     fig, axes = plt.subplots(2, 4, figsize=(22, 13))
@@ -232,6 +235,8 @@ def plot_regular_season_standings(results_df, bg_color='#1c1c1e',
                     facecolor=bg_color)
         print(f"Guardado en {save_path}")
 
+    plt.close(fig)   
+
     return fig
 
 
@@ -331,6 +336,8 @@ def plot_wildcard_bracket(results_df, bg_color='#1c1c1e', save_path=None):
     -------
     fig : matplotlib.figure.Figure
     """
+    plt.close('all')  
+
     bracket = get_most_likely_bracket(results_df)
 
     fig, axes = plt.subplots(1, 2, figsize=(20, 10))
@@ -401,4 +408,6 @@ def plot_wildcard_bracket(results_df, bg_color='#1c1c1e', save_path=None):
                     facecolor=bg_color)
         print(f"Guardado en {save_path}")
 
+    plt.close(fig) 
+    
     return fig
