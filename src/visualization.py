@@ -29,6 +29,19 @@ DIV_LABELS = {
 }
 
 
+# En src/visualization.py — copiar estas constantes de simulation.py
+
+TEAM_CONF = {
+    'BAL': 'AFC', 'CLE': 'AFC', 'PIT': 'AFC', 'CIN': 'AFC',
+    'HOU': 'AFC', 'IND': 'AFC', 'JAX': 'AFC', 'TEN': 'AFC',
+    'BUF': 'AFC', 'MIA': 'AFC', 'NE' : 'AFC', 'NYJ': 'AFC',
+    'KC' : 'AFC', 'LV' : 'AFC', 'LAC': 'AFC', 'DEN': 'AFC',
+    'CHI': 'NFC', 'DET': 'NFC', 'GB' : 'NFC', 'MIN': 'NFC',
+    'ATL': 'NFC', 'CAR': 'NFC', 'NO' : 'NFC', 'TB' : 'NFC',
+    'DAL': 'NFC', 'NYG': 'NFC', 'PHI': 'NFC', 'WAS': 'NFC',
+    'LA' : 'NFC', 'SEA': 'NFC', 'SF' : 'NFC', 'ARI': 'NFC',
+}
+
 # ── Helpers de logos ──────────────────────────────────────────────────────────
 
 _logo_cache = {}
@@ -411,3 +424,197 @@ def plot_wildcard_bracket(results_df, bg_color='#1c1c1e', save_path=None):
     plt.close(fig) 
     
     return fig
+
+def plot_team_schedule(team, game_results_df,
+                       bg_color='#1c1c1e', save_path=None):
+    """
+    Tabla visual del calendario 2026 de un equipo con
+    probabilidades de victoria por partido.
+
+    Parameters
+    ----------
+    team            : str          — abreviación del equipo (ej. 'KC')
+    game_results_df : pd.DataFrame — output de run_monte_carlo()
+    bg_color        : str          — color de fondo
+    save_path       : str | None
+    """
+    # ── Preparar datos del equipo ─────────────────────────────────────────────
+    mask = (
+        (game_results_df['home_team'] == team) |
+        (game_results_df['away_team'] == team)
+    )
+    games = game_results_df[mask].copy().reset_index(drop=True)
+
+    games['is_home']  = games['home_team'] == team
+    games['opponent'] = games.apply(
+        lambda r: r['away_team'] if r['is_home'] else r['home_team'],
+        axis=1
+    )
+    games['p_win'] = games.apply(
+        lambda r: r['p_home_win'] if r['is_home'] else r['p_away_win'],
+        axis=1
+    )
+    games['sim_wins'] = games.apply(
+        lambda r: r['home_wins'] if r['is_home'] else r['away_wins'],
+        axis=1
+    )
+
+    n_games   = len(games)
+    conf_team = TEAM_CONF.get(team, '')
+    color     = AFC_COLOR if conf_team == 'AFC' else NFC_COLOR
+    card_bg   = '#2c2c2e'
+
+    # ── Figura ─────────────────────────────────────────────────────────────────
+    fig_h = 1.2 + n_games * 0.72
+    fig, ax = plt.subplots(figsize=(12, fig_h))
+    fig.patch.set_facecolor(bg_color)
+    ax.set_facecolor(bg_color)
+    ax.set_xlim(0, 12)
+    ax.set_ylim(0, fig_h)
+    ax.axis('off')
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    ax.add_patch(FancyBboxPatch(
+        (0, fig_h - 1.0), 12, 1.0,
+        boxstyle="square,pad=0",
+        facecolor=color, edgecolor='none'
+    ))
+    _add_logo(ax, team, 0.7, fig_h - 0.48, zoom=0.45)
+    ax.text(1.6, fig_h - 0.32, team,
+            color='white', fontsize=22, fontweight='black', va='center')
+    ax.text(1.6, fig_h - 0.72, 'Calendario Temporada Regular 2026',
+            color='white', alpha=0.7, fontsize=11, va='center')
+
+    # Avg wins proyectado
+    avg_w = games['p_win'].sum()
+    ax.text(11.7, fig_h - 0.38, f'{avg_w:.1f}',
+            color=GOLD_COLOR, fontsize=28, fontweight='black',
+            va='center', ha='right')
+    ax.text(11.7, fig_h - 0.75, 'wins esperados',
+            color='white', alpha=0.6, fontsize=9,
+            va='center', ha='right')
+
+    # ── Columnas header ───────────────────────────────────────────────────────
+    y_col = fig_h - 1.22
+    for x, label, align in [
+        (0.5,  'WK',      'center'),
+        (1.7,  'RIVAL',   'left'),
+        (5.2,  'LOCAL',   'center'),
+        (6.8,  'P(WIN)',  'center'),
+        (9.5,  'SIMS GANADAS', 'center'),
+    ]:
+        ax.text(x, y_col, label, color='#666666',
+                fontsize=8, fontweight='bold',
+                va='center', ha=align,
+                transform=ax.transData)
+
+    ax.add_patch(plt.Rectangle(
+        (0, y_col - 0.18), 12, 0.02,
+        facecolor='#333333', edgecolor='none'
+    ))
+
+    # ── Filas por partido ─────────────────────────────────────────────────────
+    y = fig_h - 1.65
+    row_h = 0.65
+
+    for _, g in games.iterrows():
+        opp      = g['opponent']
+        p_win    = g['p_win']
+        is_home  = g['is_home']
+        sim_wins = int(g['sim_wins'])
+        week     = int(g['week'])
+
+        # Fondo de fila alternada
+        row_color = card_bg if int(week) % 2 == 0 else bg_color
+        ax.add_patch(FancyBboxPatch(
+            (0.1, y - row_h/2 + 0.05), 11.8, row_h - 0.05,
+            boxstyle="round,pad=0.04",
+            facecolor=row_color, edgecolor='none'
+        ))
+
+        # Semana
+        ax.text(0.5, y, str(week), color='#888888',
+                fontsize=11, fontweight='bold',
+                va='center', ha='center')
+
+        # Logo rival
+        _add_logo(ax, opp, 2.0, y, zoom=0.30)
+
+        # Nombre rival
+        ax.text(2.9, y, opp, color='white',
+                fontsize=13, fontweight='black', va='center')
+
+        # Local/Visitante
+        loc_text  = '🏠 LOCAL' if is_home else '✈ VISIT'
+        loc_color = '#a6e3a1' if is_home else '#aaaaaa'
+        ax.text(5.2, y, loc_text, color=loc_color,
+                fontsize=9, va='center', ha='center')
+
+        # Barra de probabilidad
+        bar_x   = 5.9
+        bar_w   = 2.6
+        bar_h_r = 0.25
+        bar_y   = y - bar_h_r/2
+
+        ax.add_patch(FancyBboxPatch(
+            (bar_x, bar_y), bar_w, bar_h_r,
+            boxstyle="round,pad=0.02",
+            facecolor='#383838', edgecolor='none'
+        ))
+
+        fill_color = '#a6e3a1' if p_win >= 0.55 else \
+                     '#f38ba8' if p_win < 0.45 else \
+                     GOLD_COLOR
+
+        ax.add_patch(FancyBboxPatch(
+            (bar_x, bar_y), bar_w * p_win, bar_h_r,
+            boxstyle="round,pad=0.02",
+            facecolor=fill_color, alpha=0.9, edgecolor='none'
+        ))
+
+        ax.text(6.7, y, f'{p_win:.0%}', color='white',
+                fontsize=12, fontweight='bold',
+                va='center', ha='center')
+
+        # Simulaciones ganadas (barra + número)
+        sim_bar_x = 8.2
+        sim_bar_w = 2.8
+        n_sims_total = int(g['home_wins']) + int(g['away_wins'])
+
+        ax.add_patch(FancyBboxPatch(
+            (sim_bar_x, bar_y), sim_bar_w, bar_h_r,
+            boxstyle="round,pad=0.02",
+            facecolor='#383838', edgecolor='none'
+        ))
+        ax.add_patch(FancyBboxPatch(
+            (sim_bar_x, bar_y), sim_bar_w * (sim_wins/n_sims_total), bar_h_r,
+            boxstyle="round,pad=0.02",
+            facecolor=fill_color, alpha=0.5, edgecolor='none'
+        ))
+        ax.text(11.3, y, f'{sim_wins:,} / {n_sims_total:,}',
+                color='#aaaaaa', fontsize=9,
+                va='center', ha='right')
+
+        y -= row_h
+
+    # ── Leyenda de colores ────────────────────────────────────────────────────
+    for x, color_l, label in [
+        (1.0,  '#a6e3a1', 'Favorito (>55%)'),
+        (4.5,  GOLD_COLOR,'Parejo (45–55%)'),
+        (8.0,  '#f38ba8', 'Underdog (<45%)'),
+    ]:
+        ax.add_patch(plt.Rectangle(
+            (x, 0.18), 0.3, 0.25,
+            facecolor=color_l, edgecolor='none'
+        ))
+        ax.text(x + 0.45, 0.30, label, color='#777777',
+                fontsize=8, va='center')
+
+    plt.tight_layout(pad=0)
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight',
+                    facecolor=bg_color)
+        print(f'Guardado: {save_path}')
+
+    plt.close(fig)

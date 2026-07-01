@@ -82,11 +82,12 @@ def simulate_regular_season(schedule_df, elos, home_advantage, k_regular, rng):
     elos    : dict — ratings actualizados
     records : dict — {team: {wins, losses, div_wins, conf_wins}}
     """
-    elos    = elos.copy()
-    records = {
+    elos        = elos.copy()
+    records     = {
         t: {'wins': 0, 'losses': 0, 'div_wins': 0, 'conf_wins': 0}
         for t in elos
     }
+    game_results = []   # ← nuevo
 
     for g in schedule_df.itertuples(index=False):
         home = g.home_team
@@ -96,20 +97,20 @@ def simulate_regular_season(schedule_df, elos, home_advantage, k_regular, rng):
             elos[home], elos[away], home_advantage, k_regular, rng
         )
 
+        game_results.append(result)   # ← nuevo
+
         winner = home if result == 1 else away
         loser  = away if result == 1 else home
 
         records[winner]['wins']   += 1
         records[loser]['losses']  += 1
 
-        # División y conferencia para tiebreakers
         if TEAM_DIV[home] == TEAM_DIV[away]:
             records[winner]['div_wins'] += 1
-
         if TEAM_CONF[home] == TEAM_CONF[away]:
             records[winner]['conf_wins'] += 1
 
-    return elos, records
+    return elos, records, game_results  
 
 
 # ── Función 2: seeding de playoffs ───────────────────────────────────────────
@@ -250,11 +251,11 @@ def simulate_playoff_bracket(seeds, elos, home_advantage, k_playoffs, rng):
 
 
 # ── Función 4: Monte Carlo ─────────────────────────────────────────────────────
-
 def run_monte_carlo(schedule_df, final_elos_2025,
                     home_advantage, k_regular, k_playoffs,
                     regression_factor, global_mean,
                     n_sims=10_000, seed=42):
+
     """
     Corre N simulaciones de la temporada 2026 completa.
 
@@ -275,38 +276,40 @@ def run_monte_carlo(schedule_df, final_elos_2025,
     results_df : pd.DataFrame — métricas agregadas por equipo
     wins_dist  : pd.DataFrame — distribución de wins por simulación
     """
-    rng = np.random.default_rng(seed)
+   
 
-    # ELOs 2026 tras regresión de offseason
-    elos_2026 = _apply_regression(final_elos_2025, regression_factor, global_mean)
+    rng       = np.random.default_rng(seed)
+    elos_2026 = _apply_regression(
+        final_elos_2025, regression_factor, global_mean
+    )
 
-    # Preparar schedule
     sched = (
         schedule_df[schedule_df['game_type'] == 'REG']
         .sort_values('week')
         .reset_index(drop=True)
     )
 
-    teams = sorted(elos_2026.keys())
+    teams  = sorted(elos_2026.keys())
+    n_games = len(sched)
 
-    # Acumuladores
     wins_acc       = {t: np.zeros(n_sims, dtype=np.int8) for t in teams}
     playoffs_acc   = {t: 0 for t in teams}
     div_win_acc    = {t: 0 for t in teams}
     conf_champ_acc = {t: 0 for t in teams}
     sb_win_acc     = {t: 0 for t in teams}
+    game_wins_acc  = np.zeros(n_games, dtype=np.int32)   # ← nuevo
 
     for sim in tqdm(range(n_sims), desc='Monte Carlo 2026'):
 
-        # Temporada regular
-        elos_sim, records = simulate_regular_season(
+        elos_sim, records, game_results = simulate_regular_season(
             sched, elos_2026, home_advantage, k_regular, rng
         )
+
+        game_wins_acc += np.array(game_results, dtype=np.int32)   # ← nuevo
 
         for t in teams:
             wins_acc[t][sim] = records[t]['wins']
 
-        # Seeding
         seeds = determine_playoff_seeds(records, rng)
 
         for conf in ['AFC', 'NFC']:
@@ -315,28 +318,33 @@ def run_monte_carlo(schedule_df, final_elos_2025,
                 if i < 4:
                     div_win_acc[t] += 1
 
-        # Bracket de playoffs
         sb_winner, conf_champs, _ = simulate_playoff_bracket(
             seeds, elos_sim, home_advantage, k_playoffs, rng
         )
-
         conf_champ_acc[conf_champs['AFC']] += 1
         conf_champ_acc[conf_champs['NFC']] += 1
         sb_win_acc[sb_winner]              += 1
 
-    # ── Resultados agregados ──────────────────────────────────────────────────
     results_df = pd.DataFrame({
         'team'          : teams,
         'conf'          : [TEAM_CONF[t] for t in teams],
         'division'      : [TEAM_DIV[t]  for t in teams],
         'avg_wins'      : [round(wins_acc[t].mean(), 2) for t in teams],
         'std_wins'      : [round(wins_acc[t].std(),  2) for t in teams],
-        'pct_playoffs'  : [round(playoffs_acc[t]   / n_sims * 100, 1) for t in teams],
-        'pct_div_winner': [round(div_win_acc[t]    / n_sims * 100, 1) for t in teams],
-        'pct_conf_champ': [round(conf_champ_acc[t] / n_sims * 100, 1) for t in teams],
-        'pct_sb_winner' : [round(sb_win_acc[t]     / n_sims * 100, 1) for t in teams],
+        'pct_playoffs'  : [round(playoffs_acc[t]    / n_sims * 100, 1) for t in teams],
+        'pct_div_winner': [round(div_win_acc[t]     / n_sims * 100, 1) for t in teams],
+        'pct_conf_champ': [round(conf_champ_acc[t]  / n_sims * 100, 1) for t in teams],
+        'pct_sb_winner' : [round(sb_win_acc[t]      / n_sims * 100, 1) for t in teams],
     }).sort_values('pct_playoffs', ascending=False).reset_index(drop=True)
 
     wins_dist = pd.DataFrame({t: wins_acc[t] for t in teams})
 
-    return results_df, wins_dist
+    # ── NUEVO: resultados por partido ─────────────────────────────────────────
+    game_results_df = sched[['week', 'home_team', 'away_team']].copy()
+    game_results_df['home_wins']  = game_wins_acc
+    game_results_df['away_wins']  = n_sims - game_wins_acc
+    game_results_df['p_home_win'] = (game_wins_acc / n_sims).round(4)
+    game_results_df['p_away_win'] = (1 - game_results_df['p_home_win']).round(4)
+    game_results_df = game_results_df.reset_index(drop=True)
+
+    return results_df, wins_dist, game_results_df
