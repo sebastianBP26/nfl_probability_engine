@@ -6,213 +6,213 @@
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![Jupyter](https://img.shields.io/badge/Jupyter-Notebook-F37626?logo=jupyter&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3+-F7931E?logo=scikitlearn&logoColor=white)
-![Status](https://img.shields.io/badge/Status-Fase%205%20pendiente-yellow)
+![Status](https://img.shields.io/badge/Status-Phase%205%20pending-yellow)
 
 ---
 
-## ¿Qué hace este proyecto?
+## What does this project do?
 
-Este proyecto construye un **motor de predicción probabilística** para la NFL que:
+This project builds a **probabilistic forecasting engine** for the NFL that:
 
-1. Calcula ratings **ELO** para los 32 equipos usando 26 temporadas de historia (1999–2025)
-2. Entrena y compara un modelo de **regresión logística** y **Gradient Boosting** contra el ELO puro
-3. Simula la **temporada 2026 completa** (regular season + playoffs) vía Monte Carlo (10,000 simulaciones)
-4. Produce distribuciones de wins, probabilidades de playoffs, campeonatos de división y de Super Bowl
-5. Evalúa el desempeño del modelo contra las **líneas de Vegas** como benchmark externo
-6. Genera visualizaciones de estilo Apple dark-mode y un carrusel listo para LinkedIn
+1. Computes **ELO** ratings for all 32 teams using 26 seasons of history (1999–2025)
+2. Trains and benchmarks a **logistic regression** model and **Gradient Boosting** against pure ELO
+3. Simulates the **full 2026 season** (regular season + playoffs) via Monte Carlo (10,000 simulations)
+4. Produces win distributions, playoff odds, division titles, and Super Bowl probabilities
+5. Evaluates model performance against **Vegas lines** as an external benchmark
+6. Generates Apple dark-mode style visualizations and a LinkedIn-ready carousel
 
 ---
 
-## Arquitectura del sistema
+## System architecture
 
 ```
-Datos históricos 1999–2025 (nflreadpy)
+Historical data 1999–2025 (nflreadpy)
          │
          ▼
 ┌─────────────────────┐
-│   Sistema ELO       │  ← rating por equipo, partido a partido
-│   (núcleo)          │     REG + WC + DIV + CON + SB
+│    ELO system       │  ← rating per team, game by game
+│      (core)         │     REG + WC + DIV + CON + SB
 └────────┬────────────┘
          │  elo_diff = R_home - R_away + HOME_ADVANTAGE
          ▼
 ┌─────────────────────┐
-│ Regresión logística │  ← elo_diff + rest + div_game + week_norm
-│  vs. Gradient Boost. │     (comparación, no reemplaza al ELO)
+│ Logistic regression  │  ← elo_diff + rest + div_game + week_norm
+│    vs. Grad. Boost.  │     (benchmark comparison, not a replacement)
 └────────┬────────────┘
-         │  ELO puro gana en Brier Score → motor final usa ELO
+         │  Pure ELO wins on Brier Score → final engine uses ELO
          ▼
 ┌─────────────────────┐
-│  Motor Monte Carlo  │  ← 10,000 simulaciones de temporada 2026
-│  (simulación)       │     regular season + bracket de playoffs
+│  Monte Carlo engine  │  ← 10,000 simulations of the 2026 season
+│    (simulation)      │     regular season + playoff bracket
 └────────┬────────────┘
          │
          ▼
-   Distribución de wins · % playoffs · % División · % Super Bowl
+   Win distribution · playoff % · division % · Super Bowl %
          │
          ▼
 ┌─────────────────────┐
-│   Visualizaciones    │  ← standings, bracket, calendario por equipo,
-│   + carrusel LinkedIn│     carrusel de 10 slides
+│   Visualizations      │  ← standings, bracket, per-team schedule,
+│   + LinkedIn carousel │     10-slide carousel
 └─────────────────────┘
 ```
 
 ---
 
-## Resultados actuales
+## Current results
 
-### Brier Score — evaluado sobre 4,175 juegos REG (2010–2025)
+### Brier Score — evaluated on 4,175 REG games (2010–2025)
 
-| Modelo | Brier Score | Accuracy | Gap vs. nulo cerrado |
+| Model | Brier Score | Accuracy | Gap vs. null closed |
 |---|---|---|---|
-| Modelo nulo (50/50) | 0.2500 | ~56% | 0% |
-| ELO con parámetros FiveThirtyEight | 0.2267 | — | 59.5% |
-| **ELO calibrado (propio)** | **0.2235** | **64.0%** | **67.9%** |
-| Regresión logística (todos los features) | 0.2248 | 64.4% | — |
+| Null model (50/50) | 0.2500 | ~56% | 0% |
+| ELO with FiveThirtyEight parameters | 0.2267 | — | 59.5% |
+| **Calibrated ELO (own)** | **0.2235** | **64.0%** | **67.9%** |
+| Logistic regression (all features) | 0.2248 | 64.4% | — |
 | Gradient Boosting | 0.2250 | 62.9% | — |
-| Vegas (benchmark externo) | 0.2114 | ~67% | 100% |
+| Vegas (external benchmark) | 0.2114 | ~67% | 100% |
 
-**Hallazgo clave (Notebook 03):** el ELO puro supera tanto a la regresión logística como
-al Gradient Boosting. Los features adicionales (`home_rest`, `away_rest`, `div_game`,
-`week_norm`) tienen coeficientes β 12–44× menores que `elo_diff`; un modelo con solo
-`elo_diff` (BS=0.2246) prácticamente iguala al modelo completo (BS=0.2248). Tuning de
-regularización (C entre 0.001 y 10.0) no mejora el resultado.
+**Key finding (Notebook 03):** pure ELO outperforms both logistic regression and Gradient
+Boosting. The additional features (`home_rest`, `away_rest`, `div_game`, `week_norm`) have
+β coefficients 12–44x smaller than `elo_diff`; a model with only `elo_diff` (BS=0.2246)
+essentially matches the full model (BS=0.2248). Regularization tuning (C between 0.001 and
+10.0) doesn't improve results.
 
-**Interpretación:** el ELO captura casi toda la señal predictiva disponible en variables
-estructurales públicas. La varianza restante frente a Vegas requiere información que no
-tenemos (lesiones en tiempo real, rotaciones de QB).
+**Interpretation:** ELO captures nearly all the predictive signal available in public
+structural variables. The remaining variance versus Vegas requires information we don't
+have (real-time injuries, QB rotations).
 
-**Decisión de diseño:** el motor Monte Carlo usa **ELO puro**, no el modelo logístico.
+**Design decision:** the Monte Carlo engine uses **pure ELO**, not the logistic model.
 
 ---
 
-## Parámetros del sistema ELO — todos calibrados desde datos
+## ELO system parameters — all calibrated from data
 
 ```python
-ELO_INICIAL       = 1500    # convención estándar
-HOME_ADVANTAGE    = 42.2    # derivado: -400 × log10((1/0.563) - 1)
-K_REGULAR         = 40      # grid search · validado out-of-sample 2020–2025
+INITIAL_ELO       = 1500    # standard convention
+HOME_ADVANTAGE    = 42.2    # derived: -400 × log10((1/0.563) - 1)
+K_REGULAR         = 40      # grid search · validated out-of-sample 2020–2025
 K_PLAYOFFS        = 48      # K × 1.2
-REGRESSION_FACTOR = 0.40    # grid search · validado out-of-sample 2020–2025
-GLOBAL_MEAN       = 1503.1  # media empírica calculada
-HOME_ADVANTAGE_SB = 0       # Super Bowl en cancha neutral
+REGRESSION_FACTOR = 0.40    # grid search · validated out-of-sample 2020–2025
+GLOBAL_MEAN       = 1503.1  # empirically computed mean
+HOME_ADVANTAGE_SB = 0       # Super Bowl on neutral field
 ```
 
-**Proceso de calibración:**
-- `HOME_ADVANTAGE`: despeje algebraico desde el home win rate observado
-- `GLOBAL_MEAN`: media empírica corriendo el sistema con global_mean=1500
-- `K` y `REGRESSION_FACTOR`: grid search simultáneo (28 combinaciones), calibración
-  2010–2019 → validación 2020–2025
+**Calibration process:**
+- `HOME_ADVANTAGE`: algebraic derivation from observed home win rate
+- `GLOBAL_MEAN`: empirical mean from running the system with global_mean=1500
+- `K` and `REGRESSION_FACTOR`: simultaneous grid search (28 combinations), calibration
+  on 2010–2019 → validation on 2020–2025
 
-### Comparación vs. FiveThirtyEight
+### Comparison vs. FiveThirtyEight
 
-| Parámetro | FiveThirtyEight | Nuestro sistema | Motivo de diferencia |
+| Parameter | FiveThirtyEight | Our system | Reason for difference |
 |---|---|---|---|
-| `HOME_ADVANTAGE` | 65 | **42.2** | Era 1990–2015 vs. 1999–2025 |
-| `K_REGULAR` | 20 | **40** | NFL moderna más volátil (salary cap, libre agencia) |
-| `K_PLAYOFFS` | 24 | **48** | Proporcional a K_REGULAR |
-| `REGRESSION_FACTOR` | 0.33 | **0.40** | Mayor paridad, equipos cambian más rápido |
-| `GLOBAL_MEAN` | 1505 | **1503.1** | Media empírica real del sistema |
+| `HOME_ADVANTAGE` | 65 | **42.2** | 1990–2015 era vs. 1999–2025 |
+| `K_REGULAR` | 20 | **40** | Modern NFL is more volatile (salary cap, free agency) |
+| `K_PLAYOFFS` | 24 | **48** | Proportional to K_REGULAR |
+| `REGRESSION_FACTOR` | 0.33 | **0.40** | Greater parity, teams change faster |
+| `GLOBAL_MEAN` | 1505 | **1503.1** | Actual empirical mean of the system |
 
-Diferencia de Brier Score vs. parámetros FiveThirtyEight: mejora de 0.0032 out-of-sample.
+Brier Score improvement vs. FiveThirtyEight parameters: 0.0032 out-of-sample.
 
 ---
 
-## Decisiones de diseño clave
+## Key design decisions
 
-| Decisión | Elección | Alternativa descartada | Razón |
+| Decision | Choice | Alternative discarded | Reason |
 |---|---|---|---|
-| ELO scope | REG + WC + DIV + CON + SB | Solo REG | Maximiza info entre temporadas |
-| HOME_ADVANTAGE Super Bowl | 0 | 42.2 | Cancha neutral |
-| Vegas en el modelo | Solo benchmark | Feature del modelo | Razonamiento circular |
-| `qb_name` | No es feature | Incluir como dummy | El ELO lo captura indirectamente |
-| 2020 COVID | `sample_weight = 0.3` | Excluir | Mantener N, reducir influencia |
-| Validación | Walk-forward expandible | K-Fold estándar | Evita leakage temporal |
-| `StandardScaler` | Fiteado solo en train por fold | Global | Evita leakage de escala |
-| Motor de predicción 2026 | ELO puro | Regresión logística | El ELO supera a LR y GB en Brier Score |
-| `K_PLAYOFFS` | K × 1.2 | Calibración independiente | Pocos juegos de playoffs (~338) para estimar K aparte |
+| ELO scope | REG + WC + DIV + CON + SB | REG only | Maximizes cross-season information |
+| HOME_ADVANTAGE Super Bowl | 0 | 42.2 | Neutral field |
+| Vegas in the model | Benchmark only | Model feature | Circular reasoning |
+| `qb_name` | Not a feature | Include as dummy | ELO captures it indirectly |
+| 2020 COVID | `sample_weight = 0.3` | Exclude | Keep N, reduce influence |
+| Validation | Expanding walk-forward | Standard K-Fold | Avoids temporal leakage |
+| `StandardScaler` | Fit on train only, per fold | Global | Avoids scale leakage |
+| 2026 prediction engine | Pure ELO | Logistic regression | ELO beats LR and GB on Brier Score |
+| `K_PLAYOFFS` | K × 1.2 | Independent calibration | Too few playoff games (~338) to estimate K separately |
 
-### Modelo predictivo — features
+### Predictive model — features
 
-| Feature | Incluido | Motivo |
+| Feature | Included | Reason |
 |---|---|---|
-| `elo_diff` | ✅ | Feature principal · captura la gran mayoría del poder predictivo |
-| `home_rest` | ✅ | Días de descanso del local |
-| `away_rest` | ✅ | Días de descanso del visitante |
-| `div_game` | ✅ | Rivalidades divisionales tienen dinámica propia |
-| `week_norm` | ✅ | `week / max_week` · normaliza transición de 16 a 17 juegos (2021) |
-| `home_moneyline` | ❌ | Solo benchmark externo · incluirlo sería razonamiento circular |
-| `qb_name` | ❌ | El ELO lo captura indirectamente vía resultados |
-| `temp` / `wind` | ❌ | Alto % de missing · señal débil vs. costo de imputación |
+| `elo_diff` | ✅ | Main feature · captures most of the predictive power |
+| `home_rest` | ✅ | Home team days of rest |
+| `away_rest` | ✅ | Away team days of rest |
+| `div_game` | ✅ | Divisional rivalries have their own dynamics |
+| `week_norm` | ✅ | `week / max_week` · normalizes the 16-to-17-game transition (2021) |
+| `home_moneyline` | ❌ | External benchmark only · would be circular reasoning as a feature |
+| `qb_name` | ❌ | ELO captures it indirectly through results |
+| `temp` / `wind` | ❌ | High missing rate · weak signal vs. imputation cost |
 
 ---
 
-## Hallazgos del EDA
+## EDA findings
 
-- **Dataset:** 7,276 partidos × 46 columnas · temporadas 1999–2025
-- **Home win rate:** 56.3% global · tendencia declinante era post-COVID (2021–2025: ~53–54%)
-- **2020 COVID:** outlier estructural (home win rate ~49%) · `sample_weight = 0.3` en training
-- **Transición 2021:** temporada de 17 juegos → `week_norm = week / max_week`
-- **Vegas missing:** concentrado en 1999–2005 · benchmark aplica 2007–2025
-- **Franquicias unificadas:** OAK→LV, SD→LAC, STL→LA (normalizadas por `nflreadpy`)
+- **Dataset:** 7,276 games × 46 columns · seasons 1999–2025
+- **Home win rate:** 56.3% overall · declining trend in the post-COVID era (2021–2025: ~53–54%)
+- **2020 COVID:** structural outlier (home win rate ~49%) · `sample_weight = 0.3` in training
+- **2021 transition:** 17-game season → `week_norm = week / max_week`
+- **Missing Vegas data:** concentrated in 1999–2005 · benchmark applies to 2007–2025
+- **Franchise unification:** OAK→LV, SD→LAC, STL→LA (normalized via `nflreadpy`)
 
 ---
 
-## Predicciones 2026 — highlights
+## 2026 predictions — highlights
 
 ```
-Top favoritos al Super Bowl:
-  SEA: 12.8%  ← campeón defensor Super Bowl LX
+Top Super Bowl favorites:
+  SEA: 12.8%  ← defending Super Bowl LX champion
   DEN:  7.8%
   NE:   7.4%
   HOU:  6.8%
 
-Equipos que más cayeron vs. expectativa histórica:
-  KC: 34.7% playoffs · 1.6% Super Bowl  ← era de dominancia en declive
+Teams that fell the most vs. historical expectations:
+  KC: 34.7% playoff odds · 1.6% Super Bowl  ← dynasty era in decline
 
-División más competitiva:
-  NFC West: SEA (80.9%) + LA (60.7%) + SF (56.0%) — tres equipos >56% playoffs
+Most competitive division:
+  NFC West: SEA (80.9%) + LA (60.7%) + SF (56.0%) — three teams >56% playoff odds
 
-Wild Card más probable:
+Most likely Wild Card matchups:
   AFC: HOU (bye) · DEN vs LAC · NE vs JAX · BAL vs BUF
   NFC: SEA (bye) · PHI vs MIN · DET vs SF · ATL vs LA
 ```
 
 ---
 
-## Estructura del repositorio
+## Repository structure
 
 ```
 nfl-probability-engine/
 ├── Notebooks/
-│   ├── 01_exploratory_analysis.ipynb   ✅ EDA · calibración de parámetros
-│   ├── 02_elo_system.ipynb             ✅ Sistema ELO · validación
-│   ├── 03_logistic_model.ipynb         ✅ Regresión logística vs. GB
-│   └── 04_monte_carlo.ipynb            ✅ Simulación temporada 2026
+│   ├── 01_exploratory_analysis.ipynb   ✅ EDA · parameter calibration
+│   ├── 02_elo_system.ipynb             ✅ ELO system · validation
+│   ├── 03_logistic_model.ipynb         ✅ Logistic regression vs. GB
+│   └── 04_monte_carlo.ipynb            ✅ 2026 season simulation
 │
 ├── src/
 │   ├── __init__.py
 │   ├── data_loader.py       — load_nfl_data()
-│   ├── elo.py               — sistema ELO completo (cálculo, calibración, backtesting)
+│   ├── elo.py               — full ELO system (computation, calibration, backtesting)
 │   ├── model.py             — build_features, walk_forward_validation, train_final_model
-│   ├── simulation.py        — run_monte_carlo, simulate_regular_season, bracket de playoffs
-│   └── visualization.py     — standings, bracket, calendario por equipo, carrusel LinkedIn
+│   ├── simulation.py        — run_monte_carlo, simulate_regular_season, playoff bracket
+│   └── visualization.py     — standings, bracket, per-team schedule, LinkedIn carousel
 │
 ├── data/
 │   └── processed/
-│       ├── elo_history.csv            — ELO partido a partido 1999–2025
-│       ├── elo_final_2025.csv         — ratings al cierre de 2025
-│       ├── model_features.csv         — dataset con features construidos
-│       ├── model_coefficients.csv     — coeficientes β finales
-│       ├── predictions_2026.csv       — resultados Monte Carlo agregados
-│       ├── wins_distribution_2026.csv — distribución de wins por simulación
-│       └── game_results_2026.csv      — probabilidad de victoria por partido
+│       ├── elo_history.csv            — game-by-game ELO 1999–2025
+│       ├── elo_final_2025.csv         — end-of-2025 team ratings
+│       ├── model_features.csv         — dataset with engineered features
+│       ├── model_coefficients.csv     — final β coefficients
+│       ├── predictions_2026.csv       — aggregated Monte Carlo results
+│       ├── wins_distribution_2026.csv — win distribution per simulation
+│       └── game_results_2026.csv      — win probability per game
 │
 ├── results/
 │   ├── regular_season_standings_2026.png
 │   ├── wildcard_bracket_2026.png
-│   └── carousel/                      — slides LinkedIn (slide_01.png … slide_10.png)
+│   └── carousel/                      — LinkedIn slides (slide_01.png … slide_10.png)
 │
-├── streamlit_app.py         ⏳ Pendiente (Fase 5)
+├── streamlit_app.py         ⏳ Pending (Phase 5)
 ├── README.md
 ├── .gitignore
 └── requirements.txt
@@ -220,24 +220,23 @@ nfl-probability-engine/
 
 ---
 
-## Fases del proyecto
+## Project phases
 
-| Fase | Notebook | Estado | Output clave |
+| Phase | Notebook | Status | Key output |
 |---|---|---|---|
-| 1 · EDA | `01_exploratory_analysis.ipynb` | ✅ Completo | Parámetros calibrados · Decision Log |
-| 2 · ELO | `02_elo_system.ipynb` | ✅ Completo | `elo_history.csv` · `elo_final_2025.csv` · BS=0.2235 |
-| 3 · Modelo | `03_logistic_model.ipynb` | ✅ Completo | Coeficientes β · BS=0.2248 · comparación LR vs. GB |
-| 4 · Simulación | `04_monte_carlo.ipynb` | ✅ Completo | `predictions_2026.csv` · visualizaciones |
-| 5 · Dashboard | `streamlit_app.py` | ⏳ Pendiente | App interactiva |
+| 1 · EDA | `01_exploratory_analysis.ipynb` | ✅ Complete | Calibrated parameters · Decision Log |
+| 2 · ELO | `02_elo_system.ipynb` | ✅ Complete | `elo_history.csv` · `elo_final_2025.csv` · BS=0.2235 |
+| 3 · Model | `03_logistic_model.ipynb` | ✅ Complete | β coefficients · BS=0.2248 · LR vs. GB comparison |
+| 4 · Simulation | `04_monte_carlo.ipynb` | ✅ Complete | `predictions_2026.csv` · visualizations |
 
 ---
 
-## Funciones implementadas
+## Implemented functions
 
 ### `src/data_loader.py`
 ```python
 load_nfl_data(seasons=range(1999, 2026))
-# → DataFrame limpio con franquicias normalizadas y home_team_win
+# → clean DataFrame with normalized franchises and home_team_win
 ```
 
 ### `src/elo.py`
@@ -259,13 +258,13 @@ FEATURES = ['elo_diff', 'home_rest', 'away_rest', 'div_game', 'week_norm']
 
 build_features(history_df, schedules_df, home_advantage)
 walk_forward_validation(df, test_seasons, feature_cols, model=None, scale_features=None)
-# → acepta cualquier modelo sklearn; infiere si necesita StandardScaler
+# → accepts any sklearn model; infers whether StandardScaler is needed
 train_final_model(df, feature_cols)
 ```
 
 ### `src/simulation.py`
 ```python
-# Constantes de liga
+# League constants
 CONFERENCES, DIVISIONS, TEAM_CONF, TEAM_DIV
 
 run_monte_carlo(schedule_df, final_elos_2025, home_advantage, k_regular,
@@ -274,7 +273,7 @@ run_monte_carlo(schedule_df, final_elos_2025, home_advantage, k_regular,
 # → results_df, wins_dist, game_results_df
 
 simulate_regular_season(schedule_df, elos, home_advantage, k_regular, rng)
-# → elos, records, game_results  (lista de 0/1 por partido)
+# → elos, records, game_results  (list of 0/1 per game)
 
 determine_playoff_seeds(records, rng)
 # → {'AFC': [s1..s7], 'NFC': [s1..s7]}
@@ -285,11 +284,11 @@ simulate_playoff_bracket(seeds, elos, home_advantage, k_playoffs, rng)
 
 ### `src/visualization.py`
 ```python
-# Helpers internos
-_get_logo(team, size=(45,45))     # descarga, redimensiona y cachea logos ESPN
-_add_logo(ax, team, x, y, zoom)   # coloca logo en eje matplotlib
+# Internal helpers
+_get_logo(team, size=(45,45))     # downloads, resizes and caches ESPN logos
+_add_logo(ax, team, x, y, zoom)   # places a logo on a matplotlib axis
 
-# Funciones públicas
+# Public functions
 plot_regular_season_standings(results_df, bg_color='#1c1c1e', save_path=None)
 plot_wildcard_bracket(results_df, bg_color='#1c1c1e', save_path=None)
 plot_team_schedule(team, game_results_df, bg_color='#1c1c1e', save_path=None)
@@ -298,50 +297,50 @@ generate_linkedin_carousel(results_df, save_dir='../results/carousel', bg_color=
 
 ---
 
-## Design system para visualizaciones
+## Visualization design system
 
 ```python
-# Paleta consistente en todo el proyecto
+# Consistent palette across the project
 BG_COLOR   = '#1c1c1e'    # Apple dark gray
 CARD_BG    = '#2c2c2e'    # Apple secondary
-AFC_COLOR  = '#013369'    # NFL azul oficial AFC
-NFC_COLOR  = '#D50A0A'    # NFL rojo oficial NFC
-GOLD_COLOR = '#f5c518'    # Acento dorado (líderes de división)
+AFC_COLOR  = '#013369'    # Official NFL AFC blue
+NFC_COLOR  = '#D50A0A'    # Official NFL NFC red
+GOLD_COLOR = '#f5c518'    # Gold accent (division leaders)
 
-# Logos: descargados desde ESPN via nflreadpy.load_teams()
-# Resize a 45×45px antes de OffsetImage con zoom=0.50
-# ABBR_MAP = {'LA': 'LAR', 'JAX': 'JAC'}  ← corrección de abreviaciones
+# Logos: downloaded from ESPN via nflreadpy.load_teams()
+# Resized to 45×45px before OffsetImage with zoom=0.50
+# ABBR_MAP = {'LA': 'LAR', 'JAX': 'JAC'}  ← abbreviation correction
 ```
 
 ---
 
-## Métricas de evaluación
+## Evaluation metrics
 
 ```
-Métrica principal    : Brier Score  (calibración probabilística)
-Métricas secundarias : Log-Loss · Accuracy · Calibration Curve
-Benchmark            : Vegas moneylines sin vig (2010–2025)
-Validación           : Ventana expandible (walk-forward)
-    → Train 2010–2019 | Test 2020–2025 (calibración ELO)
+Primary metric     : Brier Score  (probabilistic calibration)
+Secondary metrics  : Log-Loss · Accuracy · Calibration Curve
+Benchmark          : Vegas moneylines, vig-free (2010–2025)
+Validation         : Expanding window (walk-forward)
+    → Train 2010–2019 | Test 2020–2025 (ELO calibration)
 ```
 
 ---
 
-## Stack tecnológico
+## Tech stack
 
 ```
 Python 3.11+
-├── nflreadpy        — fuente de datos (reemplaza a nfl_data_py, deprecado)
-├── pandas / numpy    — manipulación de datos
-├── scikit-learn      — regresión logística · Gradient Boosting · métricas
-├── scipy             — pruebas estadísticas
-├── matplotlib        — visualizaciones
-└── streamlit         — dashboard interactivo (Fase 5)
+├── nflreadpy        — data source (replaces deprecated nfl_data_py)
+├── pandas / numpy    — data manipulation
+├── scikit-learn      — logistic regression · Gradient Boosting · metrics
+├── scipy             — statistical testing
+├── matplotlib        — visualizations
+└── streamlit         — interactive dashboard (Phase 5)
 ```
 
 ---
 
-## Instalación
+## Installation
 
 ```bash
 git clone https://github.com/sebastianBP26/nfl-probability-engine.git
@@ -349,7 +348,7 @@ cd nfl-probability-engine
 pip install -r requirements.txt
 ```
 
-Ejecutar los notebooks en orden:
+Run the notebooks in order:
 
 ```
 01_exploratory_analysis.ipynb  →  02_elo_system.ipynb  →  03_logistic_model.ipynb  →  04_monte_carlo.ipynb
@@ -357,19 +356,15 @@ Ejecutar los notebooks en orden:
 
 ---
 
-## Próximos pasos
+## Next steps
 
-- [ ] Explorar actualización in-season del ELO conforme avance la temporada 2026
+- [ ] Explore in-season ELO updates as the 2026 season progresses
 
 ---
 
-## Referencias
+## References
 
 - Elo, A. E. (1978). *The Rating of Chessplayers, Past and Present*. Arco Publishing.
   → [Internet Archive](https://archive.org/details/ratingofchesspla00unse)
 - FiveThirtyEight NFL ELO Data & Code.
   → https://github.com/fivethirtyeight/data/tree/master/nfl-elo
-
----
-
-*Proyecto de portafolio · Sebastián Barroso · 2026*
