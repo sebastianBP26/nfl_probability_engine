@@ -42,6 +42,16 @@ TEAM_CONF = {
     'LA' : 'NFC', 'SEA': 'NFC', 'SF' : 'NFC', 'ARI': 'NFC',
 }
 
+# ── Paleta clara (paper) ──────────────────────────────────────────────────────
+PAPER_BG   = '#FFFFFF'   # fondo blanco de la figura
+CARD_LIGHT = '#F2F2F2'   # card gris claro (no-líderes)
+TEXT_DARK  = '#1C1C1E'   # texto primario oscuro
+TEXT_MUTED = '#6B6B6B'   # texto secundario
+TEXT_FAINT = '#9A9A9A'   # etiquetas tenues
+BAR_TRACK  = '#DDDDDD'   # riel de barra vacío
+ACCENT     = '#E9AA3B'   # naranja de acento (reemplaza el dorado)
+# AFC_COLOR y NFC_COLOR se mantienen — funcionan sobre blanco
+
 # ── Helpers de logos ──────────────────────────────────────────────────────────
 
 _logo_cache = {}
@@ -101,31 +111,15 @@ def _add_logo(ax, team, x, y, zoom=0.50):
 
 # ── Viz 1: Standings por división ─────────────────────────────────────────────
 
-def plot_regular_season_standings(results_df, bg_color='#1c1c1e',
+def plot_regular_season_standings(results_df, bg_color=PAPER_BG,
                                   save_path=None):
-    """
-    Gráfica de standings proyectados por división.
-
-    Parameters
-    ----------
-    results_df : pd.DataFrame — output de run_monte_carlo()
-    bg_color   : str          — color de fondo
-    save_path  : str | None   — ruta para guardar el PNG
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-    """
-
-    plt.close('all')  
-
-    card_bg = '#2c2c2e' if bg_color == '#1c1c1e' else '#1a1f2e'
+    plt.close('all')
 
     fig, axes = plt.subplots(2, 4, figsize=(22, 13))
     fig.patch.set_facecolor(bg_color)
     fig.suptitle(
-        'NFL 2026 · Proyección Temporada Regular\nMonte Carlo 10,000 simulaciones',
-        color='white', fontsize=16, fontweight='bold', y=0.99
+        'NFL 2026 · Projected Regular Season\n10,000 Monte Carlo simulations',
+        color=TEXT_DARK, fontsize=19, fontweight='bold', y=0.99
     )
 
     for row, (conf, divs) in enumerate(zip(['AFC', 'NFC'], DIV_ORDER)):
@@ -142,11 +136,10 @@ def plot_regular_season_standings(results_df, bg_color='#1c1c1e',
             ax.add_patch(FancyBboxPatch(
                 (0, 8.8), 10, 1.1,
                 boxstyle="round,pad=0.05",
-                facecolor=conf_color, alpha=0.95,
-                edgecolor='none'
+                facecolor=conf_color, edgecolor='none'
             ))
             ax.text(5, 9.4, DIV_LABELS[div],
-                    color='white', fontsize=11, fontweight='black',
+                    color='white', fontsize=14, fontweight='black',
                     ha='center', va='center')
 
             div_teams = (
@@ -157,72 +150,75 @@ def plot_regular_season_standings(results_df, bg_color='#1c1c1e',
 
             y_positions = [7.4, 5.3, 3.2, 1.1]
             card_h      = 1.7
-            pos_colors  = [GOLD_COLOR, '#aaaaaa', '#cd7f32', '#555555']
 
             for i, row_data in div_teams.iterrows():
                 team      = row_data['team']
                 y         = y_positions[i]
                 is_leader = (i == 0)
 
-                face  = conf_color if is_leader else card_bg
-                alpha = 0.85 if is_leader else 0.70
-                edge  = GOLD_COLOR if is_leader else '#3a3a3a'
-                lw    = 1.5 if is_leader else 0.5
+                # Fills
+                face = conf_color if is_leader else CARD_LIGHT
+                edge = ACCENT     if is_leader else '#D0D0D0'
+                lw   = 2.0         if is_leader else 0.8
+
+                # Colores de texto según el fondo de la card
+                name_c  = 'white'    if is_leader else TEXT_DARK
+                sub_c   = '#E6E6E6'  if is_leader else TEXT_MUTED
+                pct_c   = ACCENT     if is_leader else TEXT_DARK
+                lbl_c   = '#D8D8D8'  if is_leader else TEXT_FAINT
+                pos_c   = ACCENT     if is_leader else TEXT_MUTED
+                bar_c   = ACCENT     if is_leader else conf_color
+                trk_c   = 'white'    if is_leader else BAR_TRACK
+                trk_a   = 0.25       if is_leader else 1.0
 
                 ax.add_patch(FancyBboxPatch(
                     (0.2, y), 9.6, card_h,
                     boxstyle="round,pad=0.05",
-                    facecolor=face, alpha=alpha,
-                    edgecolor=edge, linewidth=lw
+                    facecolor=face, edgecolor=edge, linewidth=lw
                 ))
 
                 ax.text(0.7, y + card_h/2, f'{i+1}',
-                        color=pos_colors[i], fontsize=14,
+                        color=pos_c, fontsize=16,
                         fontweight='black', va='center', ha='center')
 
                 _add_logo(ax, team, 1.9, y + card_h/2)
 
                 ax.text(3.0, y + card_h * 0.70, team,
-                        color='white', fontsize=13,
+                        color=name_c, fontsize=16,
                         fontweight='black', va='center')
 
                 ax.text(3.0, y + card_h * 0.38,
                         f'{row_data["avg_wins"]:.1f} wins  ±{row_data["std_wins"]:.1f}',
-                        color='#cccccc' if is_leader else '#888888',
-                        fontsize=8, va='center')
+                        color=sub_c, fontsize=10, va='center')
 
                 # Barra de wins
-                bar_x0 = 3.0
-                bar_w  = 5.5
+                bar_x0, bar_w, bar_hr = 3.0, 5.5, 0.18
                 bar_y  = y + card_h * 0.16
-                bar_hr = 0.18
                 fill_w = bar_w * (row_data['avg_wins'] / 17)
 
                 ax.add_patch(FancyBboxPatch(
                     (bar_x0, bar_y), bar_w, bar_hr,
                     boxstyle="round,pad=0.02",
-                    facecolor='#444444', edgecolor='none'
+                    facecolor=trk_c, alpha=trk_a, edgecolor='none'
                 ))
-                bar_color = GOLD_COLOR if is_leader else conf_color
                 ax.add_patch(FancyBboxPatch(
                     (bar_x0, bar_y), max(fill_w, 0.1), bar_hr,
                     boxstyle="round,pad=0.02",
-                    facecolor=bar_color, alpha=0.9, edgecolor='none'
+                    facecolor=bar_c, edgecolor='none'
                 ))
 
                 ax.text(9.6, y + card_h * 0.70,
                         f'{row_data["pct_playoffs"]:.0f}%',
-                        color=GOLD_COLOR if is_leader else '#aaaaaa',
-                        fontsize=12, fontweight='bold',
+                        color=pct_c, fontsize=15, fontweight='bold',
                         va='center', ha='right')
                 ax.text(9.6, y + card_h * 0.38, 'playoffs',
-                        color='#666666', fontsize=7,
+                        color=lbl_c, fontsize=8.5,
                         va='center', ha='right')
 
                 if is_leader:
                     ax.text(9.6, y + card_h * 0.14,
                             f'div {row_data["pct_div_winner"]:.0f}%',
-                            color='#888888', fontsize=7,
+                            color=lbl_c, fontsize=8.5,
                             va='center', ha='right')
 
     # Leyenda
@@ -231,25 +227,24 @@ def plot_regular_season_standings(results_df, bg_color='#1c1c1e',
     legend_ax.set_facecolor(bg_color)
     legend_ax.legend(
         handles=[
-            mpatches.Patch(facecolor=AFC_COLOR, label='AFC Division Leader'),
-            mpatches.Patch(facecolor=NFC_COLOR, label='NFC Division Leader'),
-            mpatches.Patch(facecolor='#2c2c2e',  label='Resto del equipo'),
-            plt.Line2D([0], [0], color=GOLD_COLOR, linewidth=2,
-                       label='Borde dorado = líder de división'),
+            mpatches.Patch(facecolor=AFC_COLOR, label='AFC division leader'),
+            mpatches.Patch(facecolor=NFC_COLOR, label='NFC division leader'),
+            mpatches.Patch(facecolor=CARD_LIGHT, label='Other teams'),
+            plt.Line2D([0], [0], color=ACCENT, linewidth=2.5,
+                       label='Accent border = division leader'),
         ],
-        loc='center', ncol=4, fontsize=9,
-        framealpha=0, labelcolor='white', handlelength=1.5
+        loc='center', ncol=4, fontsize=11,
+        framealpha=0, labelcolor=TEXT_DARK, handlelength=1.5
     )
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
 
     if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight',
+        plt.savefig(save_path, dpi=200, bbox_inches='tight',
                     facecolor=bg_color)
         print(f"Guardado en {save_path}")
 
-    plt.close(fig)   
-
+    plt.close(fig)
     return fig
 
 
@@ -298,131 +293,103 @@ def get_most_likely_bracket(results_df):
 
 def _draw_wc_card(ax, x0, y0, w, h, seed, team, meta, pct,
                   is_div, color, show_vs=False):
-    """Card individual para el bracket de Wild Card."""
-    face = color if is_div else '#2c2c2e'
-    edge = 'white' if is_div else color
+    face = color if is_div else CARD_LIGHT
+    edge = ACCENT if is_div else color
+
+    # Texto según fondo
+    seed_c = 'white'   if is_div else TEXT_DARK
+    name_c = 'white'   if is_div else TEXT_DARK
+    meta_c = '#E6E6E6' if is_div else TEXT_MUTED
+    pct_c  = 'white'   if is_div else TEXT_DARK
+    lbl_c  = '#D8D8D8' if is_div else TEXT_FAINT
 
     ax.add_patch(FancyBboxPatch(
         (x0, y0), w, h,
         boxstyle="round,pad=0.04",
-        facecolor=face, alpha=0.90,
-        edgecolor=edge, linewidth=0.5
+        facecolor=face, edgecolor=edge, linewidth=1.0
     ))
 
     ax.text(x0 + 0.45, y0 + h/2, str(seed),
-            color='white', fontsize=13, fontweight='black',
+            color=seed_c, fontsize=15, fontweight='black',
             va='center', ha='center')
 
     _add_logo(ax, team, x0 + 1.35, y0 + h/2)
 
     ax.text(x0 + 2.3, y0 + h * 0.68, team,
-            color='white', fontsize=15, fontweight='black', va='center')
-
+            color=name_c, fontsize=17, fontweight='black', va='center')
     ax.text(x0 + 2.3, y0 + h * 0.28, meta,
-            color='#cccccc' if is_div else '#888888',
-            fontsize=7.5, va='center')
+            color=meta_c, fontsize=9, va='center')
 
     ax.text(x0 + w - 0.15, y0 + h * 0.68, f'{pct:.1f}%',
-            color='white', fontsize=11, fontweight='bold',
+            color=pct_c, fontsize=13, fontweight='bold',
             va='center', ha='right')
     ax.text(x0 + w - 0.15, y0 + h * 0.28, 'conf champ',
-            color='#aaaaaa' if is_div else '#666666',
-            fontsize=7, va='center', ha='right')
+            color=lbl_c, fontsize=8, va='center', ha='right')
 
     if show_vs:
         ax.text(x0 + w/2, y0 - 0.08, '·  vs  ·',
-                color='#444444', fontsize=8,
+                color='#BBBBBB', fontsize=9,
                 ha='center', va='center', style='italic')
 
 
-def plot_wildcard_bracket(results_df, bg_color='#1c1c1e', save_path=None):
-    """
-    Gráfica del bracket de Wild Card más probable.
-
-    Parameters
-    ----------
-    results_df : pd.DataFrame — output de run_monte_carlo()
-    bg_color   : str          — color de fondo
-    save_path  : str | None   — ruta para guardar el PNG
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-    """
-    plt.close('all')  
+def plot_wildcard_bracket(results_df, bg_color=PAPER_BG, save_path=None):
+    plt.close('all')
 
     bracket = get_most_likely_bracket(results_df)
 
     fig, axes = plt.subplots(1, 2, figsize=(20, 10))
     fig.patch.set_facecolor(bg_color)
-    fig.subplots_adjust(left=0.01, right=0.99,
-                        top=0.92, bottom=0.02,
-                        wspace=0.06)
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.02, wspace=0.06)
     fig.suptitle(
-        'NFL 2026 · Wild Card Preview\nBracket más probable · Monte Carlo 10,000 simulaciones',
-        color='white', fontsize=14, fontweight='bold', y=0.98
+        'NFL 2026 · Wild Card Preview\nMost likely bracket · 10,000 Monte Carlo simulations',
+        color=TEXT_DARK, fontsize=17, fontweight='bold', y=0.98
     )
 
     groups_y = [8.1, 6.1, 4.1, 2.1]
     card_h   = 0.78
 
-    for ax, conf, color in [
-        (axes[0], 'AFC', AFC_COLOR),
-        (axes[1], 'NFC', NFC_COLOR)
-    ]:
+    for ax, conf, color in [(axes[0], 'AFC', AFC_COLOR), (axes[1], 'NFC', NFC_COLOR)]:
         ax.set_facecolor(bg_color)
         ax.set_xlim(0, 10)
         ax.set_ylim(0, 10)
         ax.axis('off')
 
         seeds = bracket[conf]
-
-        ax.text(5, 9.7, conf, color=color, fontsize=22,
+        ax.text(5, 9.7, conf, color=color, fontsize=24,
                 fontweight='black', ha='center', va='center')
 
         # Seed 1 BYE
         s    = seeds[0]
         info = results_df[results_df['team'] == s].iloc[0]
         y    = groups_y[0]
-
         _draw_wc_card(ax, 0.3, y - card_h/2, 9.4, card_h,
                       seed=1, team=s,
                       meta=f"{info['avg_wins']:.1f} wins avg · {info['division']}",
-                      pct=info['pct_conf_champ'],
-                      is_div=True, color=color)
-        ax.text(9.3, y, 'BYE', color='white', fontsize=10,
+                      pct=info['pct_conf_champ'], is_div=True, color=color)
+        ax.text(9.3, y, 'BYE', color='white', fontsize=11,
                 fontweight='bold', va='center', ha='right')
 
-        # Matchups 2v7, 3v6, 4v5
         for gi, (hi, lo) in enumerate([(1, 6), (2, 5), (3, 4)]):
             y       = groups_y[gi + 1]
-            team_hi = seeds[hi]
-            team_lo = seeds[lo]
-            info_hi = results_df[results_df['team'] == team_hi].iloc[0]
-            info_lo = results_df[results_df['team'] == team_lo].iloc[0]
+            info_hi = results_df[results_df['team'] == seeds[hi]].iloc[0]
+            info_lo = results_df[results_df['team'] == seeds[lo]].iloc[0]
 
-            _draw_wc_card(
-                ax, 0.3, y + 0.04, 9.4, card_h,
-                seed=hi+1, team=team_hi,
-                meta=f"{info_hi['avg_wins']:.1f} wins · {info_hi['division']}",
-                pct=info_hi['pct_conf_champ'],
-                is_div=True, color=color, show_vs=True
-            )
-            _draw_wc_card(
-                ax, 0.3, y - card_h - 0.04, 9.4, card_h,
-                seed=lo+1, team=team_lo,
-                meta=f"{info_lo['avg_wins']:.1f} wins · WILD CARD",
-                pct=info_lo['pct_conf_champ'],
-                is_div=False, color=color
-            )
+            _draw_wc_card(ax, 0.3, y + 0.04, 9.4, card_h,
+                          seed=hi+1, team=seeds[hi],
+                          meta=f"{info_hi['avg_wins']:.1f} wins · {info_hi['division']}",
+                          pct=info_hi['pct_conf_champ'],
+                          is_div=True, color=color, show_vs=True)
+            _draw_wc_card(ax, 0.3, y - card_h - 0.04, 9.4, card_h,
+                          seed=lo+1, team=seeds[lo],
+                          meta=f"{info_lo['avg_wins']:.1f} wins · WILD CARD",
+                          pct=info_lo['pct_conf_champ'],
+                          is_div=False, color=color)
 
     if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight',
-                    facecolor=bg_color)
+        plt.savefig(save_path, dpi=200, bbox_inches='tight', facecolor=bg_color)
         print(f"Guardado en {save_path}")
 
-    plt.close(fig) 
-    
+    plt.close(fig)
     return fig
 
 def plot_team_schedule(team, game_results_df,
