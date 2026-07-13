@@ -74,7 +74,7 @@ def _load_logo_urls():
     return _logo_urls
 
 
-def _get_logo(team, size=(45, 45)):
+def _get_logo(team, size=(120, 120)):
     """Descarga, redimensiona y cachea el logo de un equipo."""
     cache_key = (team, size)
     if cache_key in _logo_cache:
@@ -117,10 +117,10 @@ def plot_regular_season_standings(results_df, bg_color=PAPER_BG,
 
     fig, axes = plt.subplots(2, 4, figsize=(22, 13))
     fig.patch.set_facecolor(bg_color)
-    fig.suptitle(
-        'NFL 2026 · Projected Regular Season\n10,000 Monte Carlo simulations',
-        color=TEXT_DARK, fontsize=19, fontweight='bold', y=0.99
-    )
+    # fig.suptitle(
+    #     'NFL 2026 · Projected Regular Season\n10,000 Monte Carlo simulations',
+    #     color=TEXT_DARK, fontsize=19, fontweight='bold', y=0.99
+    # )
 
     for row, (conf, divs) in enumerate(zip(['AFC', 'NFC'], DIV_ORDER)):
         conf_color = AFC_COLOR if conf == 'AFC' else NFC_COLOR
@@ -139,7 +139,7 @@ def plot_regular_season_standings(results_df, bg_color=PAPER_BG,
                 facecolor=conf_color, edgecolor='none'
             ))
             ax.text(5, 9.4, DIV_LABELS[div],
-                    color='white', fontsize=14, fontweight='black',
+                    color='white', fontsize=16, fontweight='black',
                     ha='center', va='center')
 
             div_teams = (
@@ -188,8 +188,8 @@ def plot_regular_season_standings(results_df, bg_color=PAPER_BG,
                         fontweight='black', va='center')
 
                 ax.text(3.0, y + card_h * 0.38,
-                        f'{row_data["avg_wins"]:.1f} wins  ±{row_data["std_wins"]:.1f}',
-                        color=sub_c, fontsize=10, va='center')
+                        f'{row_data["avg_wins"]:.1f} wins', # ±{row_data["std_wins"]:.1f} delete
+                        color=sub_c, fontsize=15, va='center')
 
                 # Barra de wins
                 bar_x0, bar_w, bar_hr = 3.0, 5.5, 0.18
@@ -207,18 +207,19 @@ def plot_regular_season_standings(results_df, bg_color=PAPER_BG,
                     facecolor=bar_c, edgecolor='none'
                 ))
 
-                ax.text(9.6, y + card_h * 0.70,
+                ax.text(9.6, y + card_h * 0.55,
                         f'{row_data["pct_playoffs"]:.0f}%',
-                        color=pct_c, fontsize=15, fontweight='bold',
+                        color=pct_c, fontsize=18, fontweight='bold',
                         va='center', ha='right')
-                ax.text(9.6, y + card_h * 0.38, 'playoffs',
-                        color=lbl_c, fontsize=8.5,
-                        va='center', ha='right')
+                
+                # ax.text(9.6, y + card_h * 0.38, 'playoffs',
+                #         color=lbl_c, fontsize=8.5,
+                #         va='center', ha='right')
 
                 if is_leader:
-                    ax.text(9.6, y + card_h * 0.14,
+                    ax.text(9.6, y + card_h * 0.22,
                             f'div {row_data["pct_div_winner"]:.0f}%',
-                            color=lbl_c, fontsize=8.5,
+                            color=lbl_c, fontsize=12,
                             va='center', ha='right')
 
     # Leyenda
@@ -237,11 +238,15 @@ def plot_regular_season_standings(results_df, bg_color=PAPER_BG,
         framealpha=0, labelcolor=TEXT_DARK, handlelength=1.5
     )
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    # Con título:
+    plt.subplots_adjust(top=0.93, bottom=0.05, left=0.02, right=0.98,
+                        wspace=0.15, hspace=0.25)
 
     if save_path:
-        plt.savefig(save_path, dpi=200, bbox_inches='tight',
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', 
+                    pad_inches=0.1,
                     facecolor=bg_color)
+        
         print(f"Guardado en {save_path}")
 
     plt.close(fig)
@@ -315,16 +320,19 @@ def _draw_wc_card(ax, x0, y0, w, h, seed, team, meta, pct,
 
     _add_logo(ax, team, x0 + 1.35, y0 + h/2)
 
-    ax.text(x0 + 2.3, y0 + h * 0.68, team,
-            color=name_c, fontsize=17, fontweight='black', va='center')
-    ax.text(x0 + 2.3, y0 + h * 0.28, meta,
-            color=meta_c, fontsize=9, va='center')
+    ax.text(x0 + 2.3, y0 + h * 0.62, team,
+            color=name_c, fontsize=20, fontweight='black', va='center')
+    
+    ax.text(x0 + 2.3, y0 + h * 0.30, meta,
+            color=meta_c, fontsize=13, va='center')
 
-    ax.text(x0 + w - 0.15, y0 + h * 0.68, f'{pct:.1f}%',
-            color=pct_c, fontsize=13, fontweight='bold',
+    ax.text(x0 + w - 0.15, y0 + h * 0.5, 
+            f'{pct:.1f}%',
+            color=pct_c, fontsize=17, fontweight='bold',
             va='center', ha='right')
-    ax.text(x0 + w - 0.15, y0 + h * 0.28, 'conf champ',
-            color=lbl_c, fontsize=8, va='center', ha='right')
+    
+    # ax.text(x0 + w - 0.15, y0 + h * 0.28, 'conf champ',
+    #         color=lbl_c, fontsize=8, va='center', ha='right')
 
     if show_vs:
         ax.text(x0 + w/2, y0 - 0.08, '·  vs  ·',
@@ -339,14 +347,15 @@ def plot_wildcard_bracket(results_df, bg_color=PAPER_BG, save_path=None):
 
     fig, axes = plt.subplots(1, 2, figsize=(20, 10))
     fig.patch.set_facecolor(bg_color)
-    fig.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.02, wspace=0.06)
-    fig.suptitle(
-        'NFL 2026 · Wild Card Preview\nMost likely bracket · 10,000 Monte Carlo simulations',
-        color=TEXT_DARK, fontsize=17, fontweight='bold', y=0.98
-    )
+    # fig.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.02, wspace=0.06)
+    fig.subplots_adjust(top=0.93, bottom=0.05, left=0.02, right=0.98, wspace=0.15, hspace=0.25)
+    # fig.suptitle(
+    #     'NFL 2026 · Wild Card Preview\nMost likely bracket · 10,000 Monte Carlo simulations',
+    #     color=TEXT_DARK, fontsize=17, fontweight='bold', y=0.98
+    # )
 
-    groups_y = [8.1, 6.1, 4.1, 2.1]
-    card_h   = 0.78
+    groups_y = [8.3, 6.3, 4.3, 2.3]
+    card_h   = 1.0   # de 0.78 a 1.0 — cards más altas
 
     for ax, conf, color in [(axes[0], 'AFC', AFC_COLOR), (axes[1], 'NFC', NFC_COLOR)]:
         ax.set_facecolor(bg_color)
@@ -366,7 +375,8 @@ def plot_wildcard_bracket(results_df, bg_color=PAPER_BG, save_path=None):
                       seed=1, team=s,
                       meta=f"{info['avg_wins']:.1f} wins avg · {info['division']}",
                       pct=info['pct_conf_champ'], is_div=True, color=color)
-        ax.text(9.3, y, 'BYE', color='white', fontsize=11,
+        
+        ax.text(9.3, y - card_h * 0.32, 'BYE', color='white', fontsize=11,
                 fontweight='bold', va='center', ha='right')
 
         for gi, (hi, lo) in enumerate([(1, 6), (2, 5), (3, 4)]):
@@ -386,7 +396,7 @@ def plot_wildcard_bracket(results_df, bg_color=PAPER_BG, save_path=None):
                           is_div=False, color=color)
 
     if save_path:
-        plt.savefig(save_path, dpi=200, bbox_inches='tight', facecolor=bg_color)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor=bg_color, pad_inches=0.1)
         print(f"Guardado en {save_path}")
 
     plt.close(fig)
