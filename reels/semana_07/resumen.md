@@ -41,4 +41,4 @@
 
 - **El más seguro** · IND @ MIN: El pick con más confianza de la semana: MIN gana con 78.2%
 - **La moneda al aire** · NE @ CHI: Solo 4.8 puntos de diferencia: el partido más parejo de la semana
-- **La sorpresa** · DAL @ PHI: Las Vegas va con DAL (65.7%). El modelo va con PHI (64.2%).
+- **La sorpresa** · DAL @ PHI: Las Vegas va con DAL (66.4%). El modelo va con PHI (64.2%).

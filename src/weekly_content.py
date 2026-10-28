@@ -12,8 +12,11 @@ Córrelo cada martes (después del Monday Night Football). En un solo paso:
   2. MÉTRICAS  Evalúa al modelo con los partidos ya jugados. El umbral de
                probabilidad para contar un pick es un parámetro (--threshold,
                default: mayor a 0.50).
-  3. GRÁFICAS  Imágenes verticales 1080x1920 para el reel, con el mismo lienzo
-               de papel cuadriculado:
+  3. GRÁFICAS  Las mismas imágenes en dos tamaños, con el mismo lienzo de papel
+               cuadriculado (ver FORMATOS):
+                 reels/semana_XX/size_1/  1080x902   (publicación)
+                 reels/semana_XX/size_2/  1080x1920  (reel / historia)
+               Cada carpeta lleva:
                  01  aciertos por semana + acumulado
                  02  quién sube / quién cae en ELO (la semana pasada)
                  03  quién sube / quién cae en ELO (desde la pretemporada)
@@ -27,10 +30,12 @@ Córrelo cada martes (después del Monday Night Football). En un solo paso:
                  10  evolución del ELO por división (los 32 equipos)
                  partidos/  una historia por partido (récord, escudos,
                             probabilidad y comentario) + comentarios.md
-               + resumen.md con los números para el guion y las tablas en CSV.
+               + resumen.md con los números para el guion y las tablas en CSV
+               (en la raíz de reels/semana_XX/).
 
 Uso (desde la raíz del repo):
     python src/weekly_content.py                    # semana automática
+    python src/weekly_content.py --formatos size_1  # solo las imágenes 1080x902
     python src/weekly_content.py --threshold 0.6    # solo cuenta picks con > 60 %
     python src/weekly_content.py --semana 5         # rehacer el contenido de la semana 5
     python src/weekly_content.py --sin-actualizar   # no reescribe data/processed
@@ -48,8 +53,10 @@ import argparse
 import sys
 import textwrap
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 import matplotlib.pyplot as plt
@@ -102,7 +109,7 @@ CUADRICULA = "#D9CEC0"
 PISTA = "#E2D8CB"        # fondo de las barras de probabilidad
 FRIO_TEXTO = "#8E97B5"   # FRIO con contraste suficiente para texto
 
-W, H, DPI = 9, 16, 120   # 1080 x 1920
+W, H, DPI = 9, 16, 120   # 1080 x 1920 — el lienzo de diseño (ver FORMATOS)
 # Zona segura: Instagram/TikTok tapan arriba (~12 %) y abajo (~18 %)
 SAFE_TOP, SAFE_BOTTOM = 0.84, 0.20
 
@@ -692,26 +699,92 @@ def obtener_logo(team, px):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5 · Lienzo y utilidades de dibujo
+# 5 · Lienzo, formatos y utilidades de dibujo
 # ══════════════════════════════════════════════════════════════════════════════
+class Formato(NamedTuple):
+    """
+    Tamaño de la imagen. Todas las gráficas se diseñan en fracciones del lienzo
+    vertical 1080x1920; la franja y0 → y1 de ese diseño se lleva a dest0 → dest1
+    del lienzo real, y fuentes / escudos se escalan en la misma proporción.
+    """
+    ancho: float          # pulgadas (x DPI = pixeles)
+    alto: float
+    y0: float = 0.0
+    y1: float = 1.0
+    dest0: float = 0.0
+    dest1: float = 1.0
+
+    @property
+    def k(self):
+        """Factor de la coordenada y (fracción del diseño -> fracción del lienzo)."""
+        return (self.dest1 - self.dest0) / (self.y1 - self.y0)
+
+    @property
+    def escala(self):
+        """Factor en pixeles: fuentes, escudos, grosores."""
+        return self.k * self.alto / H
+
+
+FORMATOS = {
+    # 1080x902 (publicación): sin zonas seguras, del pie al título del diseño vertical
+    "size_1": Formato(W, 902 / DPI, y0=SAFE_BOTTOM - 0.07, y1=SAFE_TOP + 0.045,
+                      dest0=0.03, dest1=0.97),
+    # 1080x1920 (reel / historia): el diseño original, sin cambios
+    "size_2": Formato(W, H),
+}
+_FMT = FORMATOS["size_2"]
+
+
+@contextmanager
+def usar_formato(fmt):
+    """Dibuja con `fmt` dentro del bloque with."""
+    global _FMT
+    previo, _FMT = _FMT, fmt
+    try:
+        yield fmt
+    finally:
+        _FMT = previo
+
+
+def _y(v):
+    """y del diseño 1080x1920 -> y del lienzo actual (fracción de la figura)."""
+    return _FMT.dest0 + (v - _FMT.y0) * _FMT.k
+
+
+def _h(h):
+    """Alto del diseño -> alto en el lienzo actual (fracción de la figura)."""
+    return h * _FMT.k
+
+
+def _fs(n):
+    """Tamaño de fuente / marcador / grosor de línea escalado al formato."""
+    return n * _FMT.escala
+
+
+def _px(n):
+    """Tamaño de escudo en pixeles escalado al formato."""
+    return max(1, int(round(n * _FMT.escala)))
+
+
 def _lienzo(etiqueta, titulo, pie="NFL · ELO"):
-    fig = plt.figure(figsize=(W, H), dpi=DPI, facecolor=FONDO)
+    fig = plt.figure(figsize=(_FMT.ancho, _FMT.alto), dpi=DPI, facecolor=FONDO)
     bg = fig.add_axes([0, 0, 1, 1], zorder=-1)
     bg.set_facecolor(FONDO)
-    bg.set_xlim(0, 9)
-    bg.set_ylim(0, 16)
-    for x in range(10):
+    bg.set_xlim(0, _FMT.ancho)
+    bg.set_ylim(0, _FMT.alto)
+    for x in range(int(_FMT.ancho) + 1):
         bg.axvline(x, color=CUADRICULA, lw=0.8)
-    for y in range(17):
+    for y in range(int(_FMT.alto) + 1):
         bg.axhline(y, color=CUADRICULA, lw=0.8)
     bg.axis("off")
 
-    fig.text(0.5, SAFE_TOP, etiqueta.upper(), ha="center", fontsize=20,
+    fig.text(0.5, _y(SAFE_TOP), etiqueta.upper(), ha="center", fontsize=_fs(20),
              color=ACENTO, fontweight="bold")
-    fig.text(0.5, SAFE_TOP - 0.035, titulo, ha="center", va="top",
-             fontsize=32, fontweight="bold")
-    fig.text(0.06, SAFE_BOTTOM - 0.05, f"— {pie}", fontsize=14, color=GRIS)
-    fig.text(0.94, SAFE_BOTTOM - 0.05, "@SebsBarroso", fontsize=14, color=GRIS, ha="right")
+    fig.text(0.5, _y(SAFE_TOP - 0.035), titulo, ha="center", va="top",
+             fontsize=_fs(32), fontweight="bold")
+    fig.text(0.06, _y(SAFE_BOTTOM - 0.05), f"— {pie}", fontsize=_fs(14), color=GRIS)
+    fig.text(0.94, _y(SAFE_BOTTOM - 0.05), "@samplesebs", fontsize=_fs(14), color=GRIS,
+             ha="right")
     return fig
 
 
@@ -726,7 +799,8 @@ def _logo(fig, team, cx, cy, px, alpha=1.0):
     """Dibuja el escudo centrado en (cx, cy) — coordenadas de figura — con tamaño óptico px."""
     img = obtener_logo(team, px)
     alto_px, ancho_px = (px, px) if img is None else img.shape[:2]
-    w, h = ancho_px / (W * DPI), alto_px / (H * DPI)
+    fig_w, fig_h = fig.get_size_inches() * fig.dpi
+    w, h = ancho_px / fig_w, alto_px / fig_h
     ax = fig.add_axes([cx - w / 2, cy - h / 2, w, h])
     ax.axis("off")
     if img is None:        # sin escudo: la abreviatura
@@ -773,18 +847,18 @@ def graf_aciertos_semana(tabla, threshold, ruta):
     u = t.iloc[-1]
     fig = _lienzo("La prueba", "¿Cómo va el modelo?")
 
-    fig.text(0.5, 0.715, record_af(u.acum_aciertos, u.acum_picks, u.acum_empates), ha="center",
-             va="center", fontsize=96, fontweight="bold", color=ACENTO)
+    fig.text(0.5, _y(0.715), record_af(u.acum_aciertos, u.acum_picks, u.acum_empates),
+             ha="center", va="center", fontsize=_fs(96), fontweight="bold", color=ACENTO)
     etiqueta = ("RÉCORD DEL MODELO (ACIERTOS–FALLOS–EMPATES)" if u.acum_empates
                 else "RÉCORD DEL MODELO (ACIERTOS–FALLOS)")
-    fig.text(0.5, 0.655, etiqueta, ha="center", fontsize=18)
-    fig.text(0.5, 0.632, f"{u.acum_pct_aciertos:.0%} de aciertos en {int(u.acum_picks)} partidos",
-             ha="center", fontsize=15, color=GRIS)
+    fig.text(0.5, _y(0.655), etiqueta, ha="center", fontsize=_fs(18))
+    fig.text(0.5, _y(0.632), f"{u.acum_pct_aciertos:.0%} de aciertos en {int(u.acum_picks)} partidos",
+             ha="center", fontsize=_fs(15), color=GRIS)
     if threshold > 0.5:
-        fig.text(0.5, 0.612, f"Solo cuentan los picks con probabilidad > {threshold:.0%}",
-                 ha="center", fontsize=13, color=GRIS)
+        fig.text(0.5, _y(0.612), f"Solo cuentan los picks con probabilidad > {threshold:.0%}",
+                 ha="center", fontsize=_fs(13), color=GRIS)
 
-    ax = fig.add_axes([0.10, 0.34, 0.80, 0.25], facecolor="none")
+    ax = fig.add_axes([0.10, _y(0.34), 0.80, _h(0.25)], facecolor="none")
     n = len(t)
     x = np.arange(n)
     pct = t["pct_aciertos"].fillna(0).to_numpy()
@@ -795,37 +869,102 @@ def graf_aciertos_semana(tabla, threshold, ruta):
     fs = 17 if n <= 6 else (15 if n <= 9 else 12)
     for xi, r in zip(x, t.itertuples()):
         ax.text(xi, 0.03, record_af(r.aciertos, r.picks, r.empates), ha="center", va="bottom",
-                fontsize=fs, fontweight="bold", rotation=90 if vertical else 0, zorder=5)
+                fontsize=_fs(fs), fontweight="bold", rotation=90 if vertical else 0, zorder=5)
 
     acum = t["acum_pct_aciertos"].to_numpy()
-    ax.plot(x, acum, color=ACENTO, lw=4, marker="o", ms=11, zorder=6,
-            markeredgecolor=FONDO, markeredgewidth=2)
-    ax.annotate(f"{acum[-1]:.0%}", (x[-1], acum[-1]), xytext=(0, 16),
-                textcoords="offset points", ha="center", fontsize=20,
+    ax.plot(x, acum, color=ACENTO, lw=_fs(4), marker="o", ms=_fs(11), zorder=6,
+            markeredgecolor=FONDO, markeredgewidth=_fs(2))
+    ax.annotate(f"{acum[-1]:.0%}", (x[-1], acum[-1]), xytext=(0, _fs(16)),
+                textcoords="offset points", ha="center", fontsize=_fs(20),
                 fontweight="bold", color=ACENTO, zorder=7)
 
     pad = max(0.0, (6 - n) / 2)
     ax.set_xlim(-0.6 - pad, n - 0.4 + pad)
     ax.set_ylim(0, min(1.15, max(0.8, float(np.nanmax(np.r_[pct, acum])) + 0.2)))
-    ax.axhline(0.5, color=TINTA, lw=1.2, ls="--", alpha=0.6, zorder=3)
-    fig.text(0.095, _fig_y(ax, 0.5), "50%", ha="right", va="center", fontsize=13, color=GRIS)
+    ax.axhline(0.5, color=TINTA, lw=_fs(1.2), ls="--", alpha=0.6, zorder=3)
+    fig.text(0.095, _fig_y(ax, 0.5), "50%", ha="right", va="center", fontsize=_fs(13), color=GRIS)
     ax.set_xticks(x)
-    ax.set_xticklabels([f"S{int(w)}" for w in t["semana"]], fontsize=16 if n <= 10 else 12)
-    ax.tick_params(axis="x", length=0, pad=8)
+    ax.set_xticklabels([f"S{int(w)}" for w in t["semana"]], fontsize=_fs(16 if n <= 10 else 12))
+    ax.tick_params(axis="x", length=0, pad=_fs(8))
     ax.set_yticks([])
     _sin_bordes(ax, dejar=("bottom",))
     ax.spines["bottom"].set_color(GRIS)
 
-    fig.text(0.49, 0.285, "■ récord de la semana", ha="right", fontsize=15, color=FRIO_TEXTO)
-    fig.text(0.53, 0.285, "● % acumulado", ha="left", fontsize=15, color=ACENTO)
-    fig.text(0.5, 0.262, "- - -  50 % = moneda al aire", ha="center", fontsize=13, color=GRIS)
+    fig.text(0.49, _y(0.285), "■ récord de la semana", ha="right", fontsize=_fs(15),
+             color=FRIO_TEXTO)
+    fig.text(0.53, _y(0.285), "● % acumulado", ha="left", fontsize=_fs(15), color=ACENTO)
+    fig.text(0.5, _y(0.262), "- - -  50 % = moneda al aire", ha="center", fontsize=_fs(13),
+             color=GRIS)
 
     comp = ["Siempre el local: "
             f"{record_af(u.acum_siempre_local_aciertos, u.acum_picks, u.acum_empates)}"]
     if MOSTRAR_VEGAS and u.acum_vegas_partidos:
         comp.append("Favorito de Las Vegas: "
                     f"{record_af(u.acum_vegas_aciertos, u.acum_vegas_partidos, u.acum_vegas_empates)}")
-    fig.text(0.5, 0.228, "   ·   ".join(comp), ha="center", fontsize=14, color=GRIS)
+    fig.text(0.5, _y(0.228), "   ·   ".join(comp), ha="center", fontsize=_fs(14), color=GRIS)
+    return _guardar(fig, ruta)
+
+
+def graf_calibracion(calib, ruta, alta=0.70):
+    """Barras = % real que ganó el favorito en cada rango de confianza ·
+    raya = lo que el modelo prometió (prob. media). Arriba, confiar vs no confiar."""
+    c = calib[calib["partidos"] > 0].reset_index(drop=True)
+    fig = _lienzo("La prueba", "¿Cuándo hay que creerle?")
+    fig.text(0.5, _y(0.757), "Si el modelo dice 70 %, ¿el favorito gana 70 % de las veces?",
+             ha="center", fontsize=_fs(15), color=GRIS)
+
+    def _resumen(filas):
+        n, a, e = filas["partidos"].sum(), filas["aciertos"].sum(), filas["empates"].sum()
+        return (a + 0.5 * e) / n if n else np.nan, record_af(a, n, e)
+
+    lim = [float(r.split("–")[0].rstrip("%+")) / 100 for r in c["rango"].astype(str)]
+    conf = c[[v >= alta for v in lim]]
+    dudas = c.iloc[:1]
+    for cx, filas, texto, color in ((0.29, conf, f"≥{alta:.0%} seguro", ACENTO),
+                                    (0.71, dudas, f"{dudas['rango'].iloc[0]} seguro"
+                                     if len(dudas) else "", ROJO)):
+        pct, rec = _resumen(filas)
+        if np.isnan(pct):
+            continue
+        color = color if pct >= 0.5 else ROJO
+        fig.text(cx, _y(0.698), f"{pct:.0%}", ha="center", va="center", fontsize=_fs(80),
+                 fontweight="bold", color=color)
+        fig.text(cx, _y(0.662), f"ACIERTA CUANDO ESTÁ\n{texto.upper()}", ha="center", va="top",
+                 fontsize=_fs(15), linespacing=1.4)
+        fig.text(cx, _y(0.615), rec, ha="center", fontsize=_fs(15), color=GRIS)
+
+    ax = fig.add_axes([0.10, _y(0.33), 0.80, _h(0.26)], facecolor="none")
+    n = len(c)
+    x = np.arange(n)
+    real = c["pct_real"].to_numpy()
+    prom = c["prob_media"].to_numpy()
+    colores = [ROJO if r < 0.5 else (ACENTO if r >= p - 0.02 else FRIO)
+               for r, p in zip(real, prom)]
+    ax.bar(x, real, width=0.62, color=colores, zorder=2)
+    for xi, r, p, rec in zip(x, real, prom, c["record"]):
+        ax.text(xi, 0.03, rec, ha="center", va="bottom", fontsize=_fs(16),
+                fontweight="bold", color=TINTA if r < 0.5 or r < p - 0.02 else FONDO, zorder=5)
+        ax.text(xi, max(r, p) + 0.03, f"{r:.0%}", ha="center", va="bottom", fontsize=_fs(20),
+                fontweight="bold", color=ROJO if r < 0.5 else TINTA, zorder=7)
+        ax.plot([xi - 0.38, xi + 0.38], [p, p], color=TINTA, lw=_fs(3.5),
+                solid_capstyle="round", zorder=6)
+
+    ax.set_xlim(-0.6, n - 0.4)
+    ax.set_ylim(0, 1.18)
+    ax.axhline(0.5, color=TINTA, lw=_fs(1.2), ls="--", alpha=0.6, zorder=3)
+    fig.text(0.095, _fig_y(ax, 0.5), "50%", ha="right", va="center", fontsize=_fs(13), color=GRIS)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{r}\n{int(p)} partidos" for r, p in zip(c["rango"], c["partidos"])],
+                       fontsize=_fs(15), linespacing=1.5)
+    ax.tick_params(axis="x", length=0, pad=_fs(8))
+    ax.set_yticks([])
+    _sin_bordes(ax, dejar=("bottom",))
+    ax.spines["bottom"].set_color(GRIS)
+
+    fig.text(0.49, _y(0.262), "■ lo que acertó", ha="right", fontsize=_fs(15), color=ACENTO)
+    fig.text(0.53, _y(0.262), "▬ lo que prometió", ha="left", fontsize=_fs(15))
+    fig.text(0.5, _y(0.240), "- - -  50 % = moneda al aire", ha="center", fontsize=_fs(13),
+             color=GRIS)
     return _guardar(fig, ruta)
 
 
@@ -834,24 +973,24 @@ def graf_suben_caen(cambios, contexto, etiqueta, titulo, ruta, n=TOP_N):
     df = cambios.dropna().sort_values()
     sel = pd.concat([df.head(n), df.tail(n)])
     fig = _lienzo(etiqueta, titulo)
-    ax = fig.add_axes([0.25, 0.26, 0.67, 0.44], facecolor="none")
+    ax = fig.add_axes([0.25, _y(0.26), 0.67, _h(0.44)], facecolor="none")
     y = np.arange(len(sel))
     colores = [ACENTO if c > 0 else (ROJO if c < 0 else GRIS) for c in sel]
     ax.barh(y, sel.to_numpy(), color=colores, height=0.65)
-    ax.axvline(0, color=TINTA, lw=1.5)
+    ax.axvline(0, color=TINTA, lw=_fs(1.5))
     lim = max(float(sel.abs().max()), 1.0) * 1.45
     ax.set_xlim(-lim, lim)
     ax.set_ylim(-0.6, len(sel) - 0.4)
     for yi, (team, c) in zip(y, sel.items()):
         der = c >= 0
         ax.text(c + (lim * 0.03 if der else -lim * 0.03), yi, f"{c:+.0f}", va="center",
-                ha="left" if der else "right", fontsize=18, fontweight="bold")
+                ha="left" if der else "right", fontsize=_fs(18), fontweight="bold")
         if contexto:   # resultado/récord del lado contrario a la barra
             ax.text(-lim * 0.03 if der else lim * 0.03, yi, contexto.get(team, "Descansó"),
-                    va="center", ha="right" if der else "left", fontsize=12, color=GRIS)
+                    va="center", ha="right" if der else "left", fontsize=_fs(12), color=GRIS)
         fy = _fig_y(ax, yi)
-        _logo(fig, team, 0.085, fy, 58)
-        fig.text(0.14, fy, team, va="center", fontsize=20)
+        _logo(fig, team, 0.085, fy, _px(58))
+        fig.text(0.14, fy, team, va="center", fontsize=_fs(20))
     ax.set_xticks([])
     ax.set_yticks([])
     _sin_bordes(ax)
@@ -862,22 +1001,23 @@ def graf_top(elo_actual, ruta, n=TOP_N):
     """Ranking del modelo — el diseño de referencia, ahora con escudo."""
     df = elo_actual.sort_values(ascending=False).head(n)[::-1]
     fig = _lienzo("Ranking del modelo", f"Top {n} según el Elo")
-    ax = fig.add_axes([0.24, 0.30, 0.60, 0.38], facecolor="none")
+    ax = fig.add_axes([0.24, _y(0.30), 0.60, _h(0.38)], facecolor="none")
     y = np.arange(n)
     base = 1400
     ax.barh(y, df.to_numpy() - base, left=base, color=[FRIO] * (n - 1) + [ACENTO], height=0.6)
     for yi, v in zip(y, df.to_numpy()):
-        ax.text(v + 5, yi, f"{v:.0f}", va="center", fontsize=22, fontweight="bold")
+        ax.text(v + 5, yi, f"{v:.0f}", va="center", fontsize=_fs(22), fontweight="bold")
     ax.set_xlim(base, df.max() + 60)
     ax.set_ylim(-0.53, n - 0.47)
     for yi, team in zip(y, df.index):
         fy = _fig_y(ax, yi)
-        _logo(fig, team, 0.085, fy, 64)
-        fig.text(0.145, fy, team, va="center", fontsize=24)
+        _logo(fig, team, 0.085, fy, _px(64))
+        fig.text(0.145, fy, team, va="center", fontsize=_fs(24))
     ax.set_xticks([])
     ax.set_yticks([])
     _sin_bordes(ax)
-    fig.text(0.5, 0.26, "Promedio de la liga ≈ 1500", ha="center", fontsize=16, color=GRIS)
+    fig.text(0.5, _y(0.26), "Promedio de la liga ≈ 1500", ha="center", fontsize=_fs(16),
+             color=GRIS)
     return _guardar(fig, ruta)
 
 
@@ -906,47 +1046,47 @@ def graf_evolucion_elo(elo_tab, semana, ruta, n=TOP_N):
     colores = _colores_equipos(destacados)
 
     fig = _lienzo("Evolución del Elo", "Así se mueve la liga")
-    fig.text(0.5, 0.762, f"De la pretemporada a la semana {semana - 1}",
-             ha="center", fontsize=15, color=GRIS)
-    ax = fig.add_axes([0.13, 0.27, 0.64, 0.45], facecolor="none")
+    fig.text(0.5, _y(0.762), f"De la pretemporada a la semana {semana - 1}",
+             ha="center", fontsize=_fs(15), color=GRIS)
+    ax = fig.add_axes([0.13, _y(0.27), 0.64, _h(0.45)], facecolor="none")
     x = np.arange(len(cols))
     for team, fila in t.iterrows():
         if team not in destacados:
-            ax.plot(x, fila.to_numpy(), color=GRIS, lw=1.5, alpha=0.3, zorder=2)
+            ax.plot(x, fila.to_numpy(), color=GRIS, lw=_fs(1.5), alpha=0.3, zorder=2)
     for z, team in enumerate(destacados[::-1]):    # el #1 queda encima
         y = t.loc[team].to_numpy()
-        ax.plot(x, y, color=colores[team], lw=4, zorder=4 + z, solid_capstyle="round")
-        ax.plot(x[-1], y[-1], "o", ms=11, color=colores[team], zorder=4 + z,
-                markeredgecolor=FONDO, markeredgewidth=2)
+        ax.plot(x, y, color=colores[team], lw=_fs(4), zorder=4 + z, solid_capstyle="round")
+        ax.plot(x[-1], y[-1], "o", ms=_fs(11), color=colores[team], zorder=4 + z,
+                markeredgecolor=FONDO, markeredgewidth=_fs(2))
 
     lo, hi = float(t.min().min()), float(t.max().max())
     pad = (hi - lo) * 0.06
     ax.set_ylim(lo - pad, hi + pad)
     ax.set_xlim(-0.25, len(cols) - 0.75)
-    ax.axhline(1500, color=TINTA, lw=1.2, ls="--", alpha=0.6, zorder=3)
+    ax.axhline(1500, color=TINTA, lw=_fs(1.2), ls="--", alpha=0.6, zorder=3)
     ax.text(0.02, 1500, "promedio ≈ 1500", transform=ax.get_yaxis_transform(),
-            va="center", fontsize=12, color=GRIS, zorder=10,
+            va="center", fontsize=_fs(12), color=GRIS, zorder=10,
             bbox=dict(boxstyle="round,pad=0.25", facecolor=FONDO, edgecolor="none"))
 
     ax.set_xticks(x)
     ax.set_xticklabels(["Inicio"] + [f"S{c - 1}" for c in cols[1:]],
-                       fontsize=15 if len(cols) <= 10 else 11)
-    ax.tick_params(axis="x", length=0, pad=8)
+                       fontsize=_fs(15 if len(cols) <= 10 else 11))
+    ax.tick_params(axis="x", length=0, pad=_fs(8))
     paso = 50 if hi - lo < 300 else 100
     ax.set_yticks(np.arange(np.ceil((lo - pad) / paso) * paso, hi + pad, paso))
-    ax.tick_params(axis="y", length=0, labelsize=13, labelcolor=GRIS)
+    ax.tick_params(axis="y", length=0, labelsize=_fs(13), labelcolor=GRIS)
     _sin_bordes(ax, dejar=("bottom",))
     ax.spines["bottom"].set_color(GRIS)
 
     # Escudo + Elo al final de cada línea destacada, sin encimarse
     fy = [_fig_y(ax, actual[team]) for team in destacados]
-    for team, y in zip(destacados, _separar(fy, 0.034)):
-        _logo(fig, team, 0.815, y, 46)
-        fig.text(0.85, y, f"{actual[team]:.0f}", va="center", fontsize=16,
+    for team, y in zip(destacados, _separar(fy, _h(0.034))):
+        _logo(fig, team, 0.815, y, _px(46))
+        fig.text(0.85, y, f"{actual[team]:.0f}", va="center", fontsize=_fs(16),
                  fontweight="bold", color=colores[team])
 
-    fig.text(0.5, 0.215, f"En color: top {n} y el que más cae · en gris: el resto",
-             ha="center", fontsize=13, color=GRIS)
+    fig.text(0.5, _y(0.215), f"En color: top {n} y el que más cae · en gris: el resto",
+             ha="center", fontsize=_fs(13), color=GRIS)
     return _guardar(fig, ruta)
 
 
@@ -964,46 +1104,46 @@ def graf_evolucion_divisiones(elo_tab, semana, ruta):
     x = np.arange(len(cols))
 
     fig = _lienzo("Evolución del Elo", "Así va cada división")
-    fig.text(0.5, 0.762, f"De la pretemporada a la semana {semana - 1}",
-             ha="center", fontsize=15, color=GRIS)
-    top, alto_fila = 0.735, 0.12
+    fig.text(0.5, _y(0.762), f"De la pretemporada a la semana {semana - 1}",
+             ha="center", fontsize=_fs(15), color=GRIS)
+    top, alto_fila = _y(0.735), _h(0.12)
     for col, conf in enumerate(("AFC", "NFC")):
         x0 = 0.07 + 0.47 * col
         for fila, (div_en, div_es) in enumerate(DIVISIONES.items()):
             y_fila = top - fila * alto_fila
-            fig.text(x0, y_fila, f"{conf} {div_es}".upper(), va="top", fontsize=13,
+            fig.text(x0, y_fila, f"{conf} {div_es}".upper(), va="top", fontsize=_fs(13),
                      fontweight="bold", color=ACENTO)
             equipos = [e for e in t.index if division.get(e) == f"{conf} {div_en}"]
             equipos.sort(key=lambda e: -t.loc[e, cols[-1]])
             colores = _colores_equipos(equipos)
 
-            ax = fig.add_axes([x0, y_fila - alto_fila + 0.012, 0.30, alto_fila - 0.035],
+            ax = fig.add_axes([x0, y_fila - alto_fila + _h(0.012), 0.30, alto_fila - _h(0.035)],
                               facecolor="none")
-            ax.axhline(1500, color=TINTA, lw=1, ls="--", alpha=0.5, zorder=1)
+            ax.axhline(1500, color=TINTA, lw=_fs(1), ls="--", alpha=0.5, zorder=1)
             for z, e in enumerate(equipos[::-1]):
                 y = t.loc[e].to_numpy()
-                ax.plot(x, y, color=colores[e], lw=3, zorder=2 + z, solid_capstyle="round")
-                ax.plot(x[-1], y[-1], "o", ms=7, color=colores[e], zorder=2 + z,
-                        markeredgecolor=FONDO, markeredgewidth=1.5)
+                ax.plot(x, y, color=colores[e], lw=_fs(3), zorder=2 + z, solid_capstyle="round")
+                ax.plot(x[-1], y[-1], "o", ms=_fs(7), color=colores[e], zorder=2 + z,
+                        markeredgecolor=FONDO, markeredgewidth=_fs(1.5))
             ax.set_ylim(lo - pad, hi + pad)
             ax.set_xlim(-0.2, len(cols) - 0.8)
             ax.set_yticks([])
             ax.set_xticks(x)
             ultima = fila == len(DIVISIONES) - 1
             ax.set_xticklabels(["Inicio"] + [f"S{c - 1}" for c in cols[1:]] if ultima else [],
-                               fontsize=11 if len(cols) <= 8 else 8)
-            ax.tick_params(axis="x", length=0, pad=4)
+                               fontsize=_fs(11 if len(cols) <= 8 else 8))
+            ax.tick_params(axis="x", length=0, pad=_fs(4))
             _sin_bordes(ax, dejar=("bottom",))
             ax.spines["bottom"].set_color(CUADRICULA)
 
             fy = [_fig_y(ax, t.loc[e, cols[-1]]) for e in equipos]
-            for e, y in zip(equipos, _separar(fy, 0.0175)):
-                _logo(fig, e, x0 + 0.325, y, 30)
+            for e, y in zip(equipos, _separar(fy, _h(0.0175))):
+                _logo(fig, e, x0 + 0.325, y, _px(30))
                 fig.text(x0 + 0.35, y, f"{t.loc[e, cols[-1]]:.0f}", va="center",
-                         fontsize=11, fontweight="bold", color=colores[e])
+                         fontsize=_fs(11), fontweight="bold", color=colores[e])
 
-    fig.text(0.5, 0.215, "Misma escala en todas las divisiones · - - - 1500 = promedio",
-             ha="center", fontsize=13, color=GRIS)
+    fig.text(0.5, _y(0.215), "Misma escala en todas las divisiones · - - - 1500 = promedio",
+             ha="center", fontsize=_fs(13), color=GRIS)
     return _guardar(fig, ruta)
 
 
@@ -1011,8 +1151,8 @@ def graf_picks(week_games, semana, threshold, ruta, zona=ZONA_HORARIA):
     """Picks en orden de juego (jueves → lunes), escudos en lugar de nombres."""
     g = week_games.sort_values(["kickoff", "game_id"], na_position="last")
     fig = _lienzo(f"Semana {semana}", "Mis pronósticos")
-    fig.text(0.5, 0.762, f"En orden de juego · hora {_zona_corta(zona)}",
-             ha="center", fontsize=15, color=GRIS)
+    fig.text(0.5, _y(0.762), f"En orden de juego · hora {_zona_corta(zona)}",
+             ha="center", fontsize=_fs(15), color=GRIS)
 
     # Renglones: encabezado de día + un renglón por partido
     filas, dia_actual = [], "∅"
@@ -1024,18 +1164,18 @@ def graf_picks(week_games, semana, threshold, ruta, zona=ZONA_HORARIA):
         filas.append(("juego", r))
     n_dias = sum(t == "dia" for t, _ in filas)
     # Encabezados de columna
-    fig.text(0.215, 0.735, "EQUIPO GANADOR", ha="center", va="center", fontsize=12,
+    fig.text(0.215, _y(0.735), "EQUIPO GANADOR", ha="center", va="center", fontsize=_fs(12),
              fontweight="bold")
-    fig.text(0.72, 0.735, "PROBABILIDAD DE VICTORIA", ha="center", va="center", fontsize=12,
-             fontweight="bold")
-    fig.add_artist(plt.Line2D([0.075, 0.925], [0.724, 0.724], color=GRIS, lw=1))
+    fig.text(0.72, _y(0.735), "PROBABILIDAD DE VICTORIA", ha="center", va="center",
+             fontsize=_fs(12), fontweight="bold")
+    fig.add_artist(plt.Line2D([0.075, 0.925], [_y(0.724), _y(0.724)], color=GRIS, lw=_fs(1)))
 
     H_DIA, GAP = 0.95, 0.35
     unidades = (len(filas) - n_dias) + H_DIA * n_dias + GAP * (n_dias - 1)
-    top, bottom = 0.715, 0.228
+    top, bottom = _y(0.715), _y(0.228)
     u = (top - bottom) / unidades
-    u_px = u * H * DPI
-    fav_px = int(min(60, u_px * 0.84))
+    u_px = u * fig.get_size_inches()[1] * fig.dpi
+    fav_px = int(min(_px(60), u_px * 0.84))
     riv_px = int(fav_px * 0.75)
 
     y, primero, sin_pick, hora_prev = top, True, False, None
@@ -1045,7 +1185,7 @@ def graf_picks(week_games, semana, threshold, ruta, zona=ZONA_HORARIA):
                 y -= GAP * u
             primero, hora_prev = False, None
             texto = _fmt_dia(r.kickoff).upper() if pd.notna(r.kickoff) else "POR DEFINIR"
-            fig.text(0.075, y - H_DIA * u / 2, texto, fontsize=14, fontweight="bold",
+            fig.text(0.075, y - H_DIA * u / 2, texto, fontsize=_fs(14), fontweight="bold",
                      color=ACENTO, va="center")
             y -= H_DIA * u
             continue
@@ -1055,13 +1195,13 @@ def graf_picks(week_games, semana, threshold, ruta, zona=ZONA_HORARIA):
         sin_pick |= not es_pick
         hora = f"{r.kickoff:%H:%M}" if pd.notna(r.kickoff) else ""
         if hora != hora_prev:          # la hora solo cuando cambia
-            fig.text(0.075, yc, hora, fontsize=13, color=GRIS, va="center")
+            fig.text(0.075, yc, hora, fontsize=_fs(13), color=GRIS, va="center")
             hora_prev = hora
         _logo(fig, r.favorito, 0.215, yc, fav_px)
-        fig.text(0.29, yc, "vs", fontsize=13, color=GRIS, va="center", ha="center")
+        fig.text(0.29, yc, "vs", fontsize=_fs(13), color=GRIS, va="center", ha="center")
         _logo(fig, r.rival, 0.35, yc, riv_px, alpha=0.6)
         fig.text(0.405, yc, "en casa" if r.fav_local else "de visita",
-                 fontsize=12, color=GRIS, va="center")
+                 fontsize=_fs(12), color=GRIS, va="center")
 
         bar = fig.add_axes([0.52, yc - u * 0.24, 0.285, u * 0.48], facecolor="none")
         color = ACENTO if r.p_fav >= ALTA_CONFIANZA else FRIO
@@ -1070,15 +1210,15 @@ def graf_picks(week_games, semana, threshold, ruta, zona=ZONA_HORARIA):
         bar.set_xlim(0, 1)
         bar.set_ylim(-0.5, 0.5)
         bar.axis("off")
-        fig.text(0.83, yc, fmt_pct(r.p_fav), fontsize=17, fontweight="bold", va="center",
+        fig.text(0.83, yc, fmt_pct(r.p_fav), fontsize=_fs(17), fontweight="bold", va="center",
                  color=TINTA if es_pick else GRIS)
         y -= u
 
     leyenda = f"■ confianza alta (≥ {ALTA_CONFIANZA:.0%})     ■ confianza media"
-    fig.text(0.5, 0.205, leyenda, ha="center", fontsize=13, color=GRIS)
+    fig.text(0.5, _y(0.205), leyenda, ha="center", fontsize=_fs(13), color=GRIS)
     if sin_pick:
-        fig.text(0.5, 0.188, f"En gris: sin pick (≤ {threshold:.0%})", ha="center",
-                 fontsize=12, color=GRIS)
+        fig.text(0.5, _y(0.188), f"En gris: sin pick (≤ {threshold:.0%})", ha="center",
+                 fontsize=_fs(12), color=GRIS)
     return _guardar(fig, ruta)
 
 
@@ -1091,44 +1231,44 @@ def graf_duelo(r, etiqueta, explicacion, ruta, zona=ZONA_HORARIA, rec=None, rank
     """Un partido: récord, escudos, barra de probabilidad y el comentario."""
     rec, rank = rec or {}, rank or {}
     fig = _lienzo(etiqueta, f"{r.away_team} @ {r.home_team}")
-    fig.text(0.5, 0.762, _fmt_fecha_hora(r.kickoff, zona), ha="center",
-             fontsize=16, color=GRIS)
+    fig.text(0.5, _y(0.762), _fmt_fecha_hora(r.kickoff, zona), ha="center",
+             fontsize=_fs(16), color=GRIS)
 
     p_loc, p_vis = float(r.p_home_pre), float(r.p_away_pre)
     fav_vis = p_vis > p_loc
     for team, cx in ((r.away_team, 0.27), (r.home_team, 0.73)):
         if team in rec:   # récord arriba del escudo
-            fig.text(cx, 0.725, "RÉCORD", ha="center", fontsize=12, color=GRIS,
+            fig.text(cx, _y(0.725), "RÉCORD", ha="center", fontsize=_fs(12), color=GRIS,
                      fontweight="bold")
-            fig.text(cx, 0.700, fmt_record(rec[team]), ha="center", va="center",
-                     fontsize=28, fontweight="bold")
-        _logo(fig, team, cx, 0.600, 240)
+            fig.text(cx, _y(0.700), fmt_record(rec[team]), ha="center", va="center",
+                     fontsize=_fs(28), fontweight="bold")
+        _logo(fig, team, cx, _y(0.600), _px(240))
 
-    ax = fig.add_axes([0.08, 0.455, 0.84, 0.06], facecolor="none")
+    ax = fig.add_axes([0.08, _y(0.455), 0.84, _h(0.06)], facecolor="none")
     ax.barh([0], [p_vis], color=ACENTO if fav_vis else FRIO, height=1)
     ax.barh([0], [p_loc], left=p_vis, color=FRIO if fav_vis else ACENTO, height=1)
-    ax.axvline(0.5, color=TINTA, lw=1.5, ls="--")
+    ax.axvline(0.5, color=TINTA, lw=_fs(1.5), ls="--")
     ax.set_xlim(0, 1)
     ax.set_ylim(-0.55, 0.55)
     ax.axis("off")
 
     txt_vis, txt_loc = fmt_par(p_vis, p_loc)
 
-    fig.text(0.08, 0.435, txt_vis, fontsize=40, fontweight="bold", va="top",
+    fig.text(0.08, _y(0.435), txt_vis, fontsize=_fs(40), fontweight="bold", va="top",
          color=ACENTO if fav_vis else GRIS)
-    fig.text(0.92, 0.435, txt_loc, fontsize=40, fontweight="bold", va="top",
+    fig.text(0.92, _y(0.435), txt_loc, fontsize=_fs(40), fontweight="bold", va="top",
             ha="right", color=GRIS if fav_vis else ACENTO)
-    
+
     def _rk(team):
         return f" (#{rank[team]})" if team in rank else ""
 
-    fig.text(0.08, 0.372, f"visitante · Elo {r.elo_away_pre:.0f}{_rk(r.away_team)}",
-             fontsize=16, color=GRIS)
-    fig.text(0.92, 0.372, f"local · Elo {r.elo_home_pre:.0f}{_rk(r.home_team)}",
-             fontsize=16, color=GRIS, ha="right")
+    fig.text(0.08, _y(0.372), f"visitante · Elo {r.elo_away_pre:.0f}{_rk(r.away_team)}",
+             fontsize=_fs(16), color=GRIS)
+    fig.text(0.92, _y(0.372), f"local · Elo {r.elo_home_pre:.0f}{_rk(r.home_team)}",
+             fontsize=_fs(16), color=GRIS, ha="right")
     texto = _envolver(explicacion)
     fs = 19 if texto.count("\n") < 3 else 18
-    fig.text(0.5, 0.285, texto, ha="center", va="center", fontsize=fs, linespacing=1.55)
+    fig.text(0.5, _y(0.285), texto, ha="center", va="center", fontsize=_fs(fs), linespacing=1.55)
     return _guardar(fig, ruta)
 
 
@@ -1217,13 +1357,14 @@ def _slug(texto):
 
 def generar_contenido(season=SEASON, threshold=THRESHOLD, semana=None, actualizar=True,
                       out_dir=None, zona=ZONA_HORARIA, logos_dir=None, top_n=TOP_N,
-                      historias=True):
+                      historias=True, formatos=None):
     """
     Corre todo el flujo semanal y regresa un dict con los DataFrames y las rutas.
 
     semana    : semana de los picks. None = la próxima por jugarse. Las métricas
                 usan solo las semanas anteriores (lo que se sabía en ese momento).
     historias : True = una imagen por partido en partidos/ + comentarios.md.
+    formatos  : tamaños a generar (claves de FORMATOS). None = todos.
     """
     global LOGOS_DIR
     if logos_dir:
@@ -1270,44 +1411,49 @@ def generar_contenido(season=SEASON, threshold=THRESHOLD, semana=None, actualiza
     rec = records_equipos(games, semana)
     rank = elo_tab[semana].rank(ascending=False, method="min").astype(int).to_dict()
     rutas = []
-    with plt.rc_context(ESTILO):
-        if len(tabla):
-            rutas.append(graf_aciertos_semana(tabla, threshold, carpeta / "01_aciertos_por_semana.png"))
-        if semana > 1:
-            rutas.append(graf_suben_caen(
-                elo_tab[semana] - elo_tab[semana - 1], resultados_semana(games, semana - 1),
-                "Quién sube, quién cae", f"Cambio de Elo\nen la semana {semana - 1}",
-                carpeta / f"02_elo_semana_{semana - 1:02d}.png", n=top_n))
-        if semana > 2:   # en la semana 2 sería idéntica a la anterior
-            rutas.append(graf_suben_caen(
-                elo_tab[semana] - elo_tab[elo_tab.columns.min()], records(games, semana),
-                "Quién sube, quién cae", "Cambio de Elo\ndesde la pretemporada",
-                carpeta / "03_elo_temporada.png", n=top_n))
-        rutas.append(graf_top(elo_tab[semana], carpeta / "04_top_elo.png", n=top_n))
-        rutas.append(graf_picks(week_games, semana, threshold,
-                                carpeta / f"{semana - 1:02d}_picks_semana_{semana:02d}.png", zona))
-        for i, (etiqueta, r, texto) in enumerate(destacados, start=6):
-            nombre = f"{i:02d}_{_slug(etiqueta)}_{r.away_team}_{r.home_team}.png"
-            rutas.append(graf_duelo(r, etiqueta, texto, carpeta / nombre, zona, rec, rank))
-        if semana > 1:
-            rutas.append(graf_evolucion_elo(elo_tab, semana, carpeta / "09_evolucion_elo.png",
-                                            n=top_n))
-            rutas.append(graf_evolucion_divisiones(elo_tab, semana,
-                                                   carpeta / "10_evolucion_divisiones.png"))
+    # Las mismas imágenes en cada tamaño: reels/semana_XX/size_1, size_2, ...
+    for nombre_fmt in formatos or FORMATOS:
+        img = carpeta / nombre_fmt
+        with plt.rc_context(ESTILO), usar_formato(FORMATOS[nombre_fmt]):
+            if len(tabla):
+                rutas.append(graf_aciertos_semana(tabla, threshold, img / "01_aciertos_por_semana.png"))
+            if semana > 1:
+                rutas.append(graf_suben_caen(
+                    elo_tab[semana] - elo_tab[semana - 1], resultados_semana(games, semana - 1),
+                    "Quién sube, quién cae", f"Cambio de Elo\nen la semana {semana - 1}",
+                    img / f"02_elo_semana_{semana - 1:02d}.png", n=top_n))
+            if semana > 2:   # en la semana 2 sería idéntica a la anterior
+                rutas.append(graf_suben_caen(
+                    elo_tab[semana] - elo_tab[elo_tab.columns.min()], records(games, semana),
+                    "Quién sube, quién cae", "Cambio de Elo\ndesde la pretemporada",
+                    img / "03_elo_temporada.png", n=top_n))
+            rutas.append(graf_top(elo_tab[semana], img / "04_top_elo.png", n=top_n))
+            rutas.append(graf_picks(week_games, semana, threshold,
+                                    img / f"{semana - 1:02d}_picks_semana_{semana:02d}.png", zona))
+            for i, (etiqueta, r, texto) in enumerate(destacados, start=6):
+                nombre = f"{i:02d}_{_slug(etiqueta)}_{r.away_team}_{r.home_team}.png"
+                rutas.append(graf_duelo(r, etiqueta, texto, img / nombre, zona, rec, rank))
+            if semana > 1:
+                rutas.append(graf_evolucion_elo(elo_tab, semana, img / "09_evolucion_elo.png",
+                                                n=top_n))
+                rutas.append(graf_evolucion_divisiones(elo_tab, semana,
+                                                       img / "10_evolucion_divisiones.png"))
+            if calib["partidos"].sum():
+                rutas.append(graf_calibracion(calib, img / "11_calibracion.png"))
 
-        # Historias: una imagen por partido, en orden de juego, con su comentario
-        if historias:
-            orden = week_games.sort_values(["kickoff", "game_id"], na_position="last")
-            n, partidos = len(orden), []
-            for i, (_, r) in enumerate(orden.iterrows(), start=1):
-                texto = comentario_partido(r, rec, rank)
-                partidos.append((i, r, texto))
-                rutas.append(graf_duelo(
-                    r, f"Semana {semana} · Partido {i} de {n}", texto,
-                    carpeta / "partidos" / f"{i:02d}_{r.away_team}_{r.home_team}.png",
-                    zona, rec, rank))
-            rutas.append(escribir_comentarios(carpeta / "partidos" / "comentarios.md",
-                                              semana, partidos, rec, rank, zona))
+            # Historias: una imagen por partido, en orden de juego, con su comentario
+            if historias:
+                orden = week_games.sort_values(["kickoff", "game_id"], na_position="last")
+                n, partidos = len(orden), []
+                for i, (_, r) in enumerate(orden.iterrows(), start=1):
+                    texto = comentario_partido(r, rec, rank)
+                    partidos.append((i, r, texto))
+                    rutas.append(graf_duelo(
+                        r, f"Semana {semana} · Partido {i} de {n}", texto,
+                        img / "partidos" / f"{i:02d}_{r.away_team}_{r.home_team}.png",
+                        zona, rec, rank))
+                rutas.append(escribir_comentarios(img / "partidos" / "comentarios.md",
+                                                  semana, partidos, rec, rank, zona))
     rutas.append(escribir_resumen(carpeta / "resumen.md", semana, threshold, tabla, calib,
                                   ev, week_games, destacados, zona))
     for r in rutas:
@@ -1332,11 +1478,14 @@ def main(argv=None):
     p.add_argument("--top", type=int, default=TOP_N, help="Equipos por lado en las gráficas de ELO")
     p.add_argument("--sin-historias", action="store_true",
                    help="No genera la imagen de cada partido (carpeta partidos/)")
+    p.add_argument("--formatos", nargs="+", choices=list(FORMATOS), default=None,
+                   help="Tamaños a generar: size_1 (1080x902), size_2 (1080x1920). Default: todos")
     a = p.parse_args(argv)
     plt.switch_backend("Agg")
     generar_contenido(season=a.season, threshold=a.threshold, semana=a.semana,
                       actualizar=not a.sin_actualizar, out_dir=a.out, zona=a.zona,
-                      logos_dir=a.logos_dir, top_n=a.top, historias=not a.sin_historias)
+                      logos_dir=a.logos_dir, top_n=a.top, historias=not a.sin_historias,
+                      formatos=a.formatos)
 
 
 if __name__ == "__main__":
