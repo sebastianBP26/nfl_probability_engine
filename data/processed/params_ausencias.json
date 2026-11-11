@@ -1,0 +1,70 @@
+{
+  "deltas": {
+    "QB": 80.1,
+    "RB": 0.0,
+    "WRTE": 30.2,
+    "OL": 0.0,
+    "DEF": 0.0
+  },
+  "modo": "integrado",
+  "prob_ausencia": {
+    "actual": {
+      "Doubtful": 0.988,
+      "Note": 0.0,
+      "Out": 1.0,
+      "Probable": 0.015,
+      "Questionable": 0.267,
+      "Sin designación": 0.014
+    },
+    "previa": {
+      "Doubtful": 0.406,
+      "Note": 0.5,
+      "Out": 0.607,
+      "Probable": 0.052,
+      "Questionable": 0.138,
+      "Sin designación": 0.06
+    }
+  },
+  "grupos_en_cero": [
+    "RB",
+    "OL",
+    "DEF"
+  ],
+  "deltas_entrenamiento": {
+    "QB": 83.0,
+    "RB": 0.0,
+    "WRTE": 32.6,
+    "OL": 0.0,
+    "DEF": 0.0
+  },
+  "ic90_deltas_entrenamiento": {
+    "QB": [
+      50.0,
+      103.4
+    ],
+    "WRTE": [
+      14.5,
+      50.0
+    ]
+  },
+  "entrenamiento": [
+    2012,
+    2021
+  ],
+  "prueba": [
+    2022,
+    2025
+  ],
+  "brier_prueba": {
+    "Modelo 1 · Elo base": 0.2228,
+    "Parche QB (δ=90)": 0.2197,
+    "Solo QB (calibrado)": 0.2197,
+    "Modelo 2 · overlay · reporte viernes": 0.2191,
+    "Modelo 2 · integrado · reporte viernes": 0.2191,
+    "Modelo 2 · overlay · reporte martes": 0.2195,
+    "Modelo 2 · overlay · ausencias reales": 0.2186,
+    "Las Vegas (moneyline)": 0.2095
+  },
+  "nota": "δ = puntos Elo por titular ausente. Ver Notebooks/07_elo_ausencias.ipynb",
+  "calibrado_en": "2026-11-10 22:09"
+}

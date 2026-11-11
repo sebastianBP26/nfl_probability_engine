@@ -22,24 +22,24 @@
 
 ## Picks de la semana 9 (hora CDMX)
 
-- Jueves 5 nov 19:15 · JAX @ BAL → **JAX 55%**
-- Domingo 8 nov 08:30 · CIN @ ATL → **CIN 53%**
-- Domingo 8 nov 12:00 · CLE @ NO → **CLE 54%**
-- Domingo 8 nov 12:00 · DAL @ IND → **IND 53%**
-- Domingo 8 nov 12:00 · DEN @ CAR → **DEN 70%**
-- Domingo 8 nov 12:00 · DET @ MIA → **DET 68%**
-- Domingo 8 nov 12:00 · LA @ WAS → **LA 60%**
-- Domingo 8 nov 12:00 · NYG @ PHI → **PHI 52%**
-- Domingo 8 nov 12:00 · NYJ @ KC → **KC 78%**
-- Domingo 8 nov 15:05 · HOU @ LAC → **HOU 55%**
-- Domingo 8 nov 15:05 · LV @ SF → **SF 80%**
-- Domingo 8 nov 15:25 · ARI @ SEA → **SEA 77%**
-- Domingo 8 nov 15:25 · GB @ NE → **NE 65%**
-- Domingo 8 nov 19:20 · TB @ CHI → **CHI 74%**
-- Lunes 9 nov 19:15 · BUF @ MIN → **MIN 50%**
+- jue 5 nov 19:15 · JAX @ BAL → **JAX 55%**
+- dom 8 nov 08:30 · CIN @ ATL → **CIN 53%**
+- dom 8 nov 12:00 · CLE @ NO → **CLE 54%**
+- dom 8 nov 12:00 · DAL @ IND → **IND 53%**
+- dom 8 nov 12:00 · DEN @ CAR → **DEN 70%**
+- dom 8 nov 12:00 · DET @ MIA → **DET 68%**
+- dom 8 nov 12:00 · LA @ WAS → **LA 60%**
+- dom 8 nov 12:00 · NYG @ PHI → **PHI 52%**
+- dom 8 nov 12:00 · NYJ @ KC → **KC 78%**
+- dom 8 nov 15:05 · HOU @ LAC → **HOU 55%**
+- dom 8 nov 15:05 · LV @ SF → **SF 80%**
+- dom 8 nov 15:25 · ARI @ SEA → **SEA 77%**
+- dom 8 nov 15:25 · GB @ NE → **NE 65%**
+- dom 8 nov 19:20 · TB @ CHI → **CHI 74%**
+- lun 9 nov 19:15 · BUF @ MIN → **MIN 50%**
 
 ## Destacados
 
-- **El más seguro** · LV @ SF: El pick con más confianza de la semana: SF gana con 79.7%
-- **La moneda al aire** · BUF @ MIN: Solo 0.6 puntos de diferencia: el partido más parejo de la semana
-- **La sorpresa** · DAL @ IND: Las Vegas va con DAL (70.0%). El modelo va con IND (53.4%).
+- **El más claro** · LV @ SF: El favorito más claro de la semana: SF gana con 80%
+- **La moneda al aire** · BUF @ MIN: Prácticamente 50-50: el partido más parejo de la semana
+- **La sorpresa** · CLE @ NO: Las Vegas va con NO (66%). El modelo va con CLE (54%).

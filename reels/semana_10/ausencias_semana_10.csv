@@ -1,0 +1,15 @@
+week,kickoff,away_team,home_team,p_home_m1,p_home_m2,dif_p_home,favorito_m1,p_fav_m1,favorito_m2,p_fav_m2,ajuste_elo_home,ajuste_elo_away,ausentes_home,ausentes_away,fuente_reporte
+10,2026-11-12 19:15:00-06:00,WAS,NYG,0.6699,0.6108,-0.0591,NYG,0.6699,NYG,0.6108,-81.9,-6.6,"Jaxson Dart (QB, inicia J.J. McCarthy)",,provisional: reporte sem. 9
+10,2026-11-15 08:30:00-06:00,NE,DET,0.5789,0.5757,-0.0032,DET,0.5789,DET,0.5757,-4.2,-9.0,,,provisional: reporte sem. 9
+10,2026-11-15 12:00:00-06:00,BUF,NYJ,0.1707,0.1708,0.0001,BUF,0.8293,BUF,0.8292,-20.1,-5.4,"Garrett Wilson (WRTE, Out sem. 9)",,provisional: reporte sem. 9
+10,2026-11-15 12:00:00-06:00,CAR,NO,0.561,0.5832,0.0222,NO,0.561,NO,0.5832,-0.0,-4.8,,,provisional: reporte sem. 9
+10,2026-11-15 12:00:00-06:00,HOU,CLE,0.4905,0.4965,0.006,HOU,0.5095,HOU,0.5035,-14.7,-0.0,,,provisional: reporte sem. 9
+10,2026-11-15 12:00:00-06:00,JAX,TEN,0.2153,0.2009,-0.0144,JAX,0.7847,JAX,0.7991,-18.3,-1.8,"Carnell Tate (WRTE, Out sem. 8)",,provisional: reporte sem. 8
+10,2026-11-15 12:00:00-06:00,KC,ATL,0.4197,0.4634,0.0437,KC,0.5803,KC,0.5366,-0.0,-6.6,,,provisional: reporte sem. 9
+10,2026-11-15 12:00:00-06:00,MIA,IND,0.5666,0.5739,0.0073,IND,0.5666,IND,0.5739,-0.0,-4.8,,,provisional: reporte sem. 9
+10,2026-11-15 12:00:00-06:00,MIN,GB,0.5367,0.5287,-0.008,GB,0.5367,GB,0.5287,-1.8,-18.3,,"Jauan Jennings (WRTE, Out sem. 9)",provisional: reporte sem. 9
+10,2026-11-15 15:05:00-06:00,LA,ARI,0.3501,0.3094,-0.0407,LA,0.6499,LA,0.6906,-81.9,-42.8,"Jacoby Brissett (QB, inicia Gardner Minshew)","Davante Adams (WRTE, IR)",provisional: reporte sem. 9
+10,2026-11-15 15:05:00-06:00,SEA,LV,0.3056,0.3566,0.051,SEA,0.6944,SEA,0.6434,-0.0,-50.4,,"Sam Darnold (QB, Out sem. 9)",provisional: reporte sem. 9
+10,2026-11-15 15:25:00-06:00,SF,DAL,0.3206,0.3039,-0.0167,SF,0.6794,SF,0.6961,-4.2,-0.0,,,provisional: reporte sem. 9
+10,2026-11-15 19:20:00-06:00,PIT,CIN,0.5137,0.5021,-0.0116,CIN,0.5137,CIN,0.5021,-0.0,-1.8,,,provisional: reporte sem. 9
+10,2026-11-16 19:15:00-06:00,LAC,BAL,0.6707,0.5882,-0.0825,BAL,0.6707,BAL,0.5882,-80.1,-0.0,"Lamar Jackson (QB, inicia Tyler Huntley)",,provisional: reporte sem. 9

@@ -251,6 +251,49 @@ The model agrees with the Vegas favorite in 82.2% of picks. Full weekly detail i
 
 ---
 
+## Model 2 · ELO + absences (injuries)
+
+A second model that runs **in parallel** with the calibrated ELO (Model 1). Same ELO
+(HA = 42.2, K = 40/48, α = 0.40, μ = 1503.1) plus a pre-game adjustment for missing starters:
+
+```
+diff = R_home − R_away + HA − Σ_g δ_g · A_home,g + Σ_g δ_g · A_away,g
+```
+
+- `A_t,g` = expected missing starters of group g (QB, RB, WR/TE, OL, DEF) from nflreadpy:
+  `load_injuries` (Out / Doubtful / Questionable), `load_rosters_weekly` (IR), `load_snap_counts`
+  (who is a starter), `load_schedules` (starting QB). QB starter = week-1 starter.
+- `δ_g` = ELO points per missing starter, fit by minimizing log loss on 2012–2021; groups kept
+  only if they help in leave-one-season-out CV. Result: **QB ≈ 80, WR/TE ≈ 30**, RB/OL/DEF = 0.
+- P(starter sits | status), 2012–2025: Out 99.97% · Doubtful 98.8% · Questionable 26.7%.
+
+| Out-of-sample 2022–2025 (1,139 games) | Brier | Log loss | Accuracy |
+|---|---|---|---|
+| Model 1 · ELO | 0.2228 | 0.6376 | 64.2% |
+| QB patch only (δ = 90) | 0.2197 | 0.6309 | 65.2% |
+| **Model 2 · ELO + absences** (integrated, Friday report) | **0.2191** | **0.6300** | 64.8% |
+| Model 2 (overlay) with Tuesday info (previous week's report) | 0.2195 | 0.6312 | 65.9% |
+| Vegas | 0.2095 | 0.6075 | 67.6% |
+
+Paired bootstrap: Model 2 beats Model 1 in 98% of resamples. Details and charts in
+`Notebooks/07_elo_ausencias.ipynb`.
+
+**Forecast ledger.** `weekly_content.py` freezes both models' forecasts before kickoff in
+`data/processed/pronosticos/pronosticos_2026.csv` (append-only, timestamped). Evaluation uses
+the frozen version, never a recomputation, so Model 2 is never graded with injury news it did
+not have. Each `reels/semana_XX/` gets `comparacion_modelos.csv`, `ausencias_semana_XX.csv`
+and a "Modelo 1 vs Modelo 2" section in `resumen.md`. Reel images still use Model 1.
+
+```bash
+python3 src/weekly_content.py                     # Tuesday: content + freeze both models
+python3 src/weekly_content.py --solo-pronosticos  # Fri/Sat: re-freeze Model 2 with the final injury report
+python3 src/weekly_content.py --sin-ausencias     # Model 1 only (previous behavior)
+python3 src/compare_models.py --tabla             # cumulative comparison from the ledger
+python3 src/compare_models.py --recalibrar        # re-estimate δ and absence probabilities
+```
+
+---
+
 ## Repository structure
 
 ```
@@ -260,7 +303,8 @@ nfl-probability-engine/
 │   ├── 02_elo_system.ipynb             ✅ ELO system · validation
 │   ├── 03_logistic_model.ipynb         ✅ Logistic regression vs. GB
 │   ├── 04_monte_carlo.ipynb            ✅ 2026 season simulation
-│   └── 05_weekly_win_probabilities.ipynb ✅ In-season weekly ELO · per-game probabilities
+│   ├── 05_weekly_win_probabilities.ipynb ✅ In-season weekly ELO · per-game probabilities
+│   └── 07_elo_ausencias.ipynb          ✅ Model 2 (ELO + absences) · audit and backtest
 │
 ├── src/
 │   ├── __init__.py
@@ -270,7 +314,11 @@ nfl-probability-engine/
 │   ├── simulation.py        — run_monte_carlo, simulate_regular_season, playoff bracket
 │   ├── visualization.py     — standings, bracket, per-team schedule, LinkedIn carousel
 │   ├── weekly_probabilities.py — in-season ELO updates with real results only
-│   └── weekly_content.py    — weekly pipeline: data → metrics → reel images (CLI)
+│   ├── weekly_content.py    — weekly pipeline: data → metrics → reel images (CLI)
+│   ├── availability.py      — missing starters per team-game (injuries, IR, snaps)
+│   ├── elo_ausencias.py     — Model 2: ELO + absences (calibration, weekly snapshots)
+│   ├── model_registry.py    — forecast ledger for Model 1 vs Model 2
+│   └── compare_models.py    — CLI: --recalibrar, --backfill, --tabla
 │
 ├── data/
 │   └── processed/
@@ -283,6 +331,11 @@ nfl-probability-engine/
 │       ├── game_results_2026.csv      — win probability per game
 │       ├── weekly_predictions_2026.csv — in-season per-game ELO pre/post and probability
 │       ├── elo_evolution_2026.csv     — week-by-week ELO per team
+│       ├── weekly_predictions_ausencias_2026.csv — Model 2 per-game probabilities
+│       ├── params_ausencias.json      — Model 2 δ, mode, absence probabilities
+│       ├── backtest_ausencias.csv     — out-of-sample comparison
+│       ├── ausencias_panel.csv        — missing starters per team-game 2012–2026
+│       ├── pronosticos/               — frozen forecast ledger (both models)
 │       └── weekly/                    — week_01_probabilities.csv … week_18_probabilities.csv
 │   └── logos/                         — local cache of team logos (ARI.png … WAS.png)
 │
@@ -430,17 +483,22 @@ GOLD_COLOR = '#f5c518'    # Gold accent (division leaders)
 # ABBR_MAP = {'LA': 'LAR', 'JAX': 'JAC'}  ← abbreviation correction
 ```
 
-### Weekly reels palette (graph paper)
+### Weekly reels design system ("Black Sea")
 
 ```python
-FONDO      = '#EFE6DC'    # paper background
-TINTA      = '#1E1B18'    # ink
-ACENTO     = '#7A6A50'    # gold/brown: favorite, what rises
-FRIO       = '#C9CFE0'    # gray-blue: opponent, secondary
-ROJO       = '#B5523B'    # what falls
-CUADRICULA = '#D9CEC0'    # grid lines
+FONDO    = '#332E32'    # Black Sea background, always flat
+PANEL    = '#3E383D'    # panels, bar tracks, highlighted rows
+LINEA    = '#554E54'    # dividers and secondary bar segments
+NEUTRO   = '#686167'    # neutral bar segment
+TEXTO    = '#F6F2EE'    # primary text (warm white)
+TEXTO2   = '#C2BBC0'    # secondary text
+TENUE    = '#8E878C'    # footnotes, column headers
+AZUL     = '#7778DE'    # Blueberry Pie: favorite / positive / what rises (text: #8F90EC)
+ROJO     = '#F44631'    # Cherry Tomato: the lead / surprise / what falls (text: #F65A47)
 
-# Safe zone: Instagram/TikTok cover ~12% at the top and ~18% at the bottom
+# DejaVu Sans · flat design (no gradients, shadows or background grid)
+# Story 1080×1920: content between y = 300 and y = 1780 px, 64 px side margins
+# Footer: "— NFL · TOPIC · No es consejo de apuesta" + @samplesebs
 ```
 
 ---
