@@ -1,0 +1,14 @@
+week,kickoff,away_team,home_team,p_home_m1,p_home_m2,dif_p_home,favorito_m1,p_fav_m1,favorito_m2,p_fav_m2,ajuste_elo_home,ajuste_elo_away,ausentes_home,ausentes_away,fuente_reporte
+11,2026-11-19 19:15:00-06:00,IND,HOU,0.6714,0.7095,0.0381,HOU,0.6714,HOU,0.7095,-0.0,-30.2,,"Josh Downs (WRTE, otro equipo)",provisional: reporte sem. 10
+11,2026-11-22 12:00:00-06:00,ARI,KC,0.7649,0.8491,0.0842,KC,0.7649,KC,0.8491,-8.4,-110.3,,"Jacoby Brissett (QB, inicia Gardner Minshew); Michael Wilson (WRTE, IR)",provisional: reporte sem. 10
+11,2026-11-22 12:00:00-06:00,BAL,CAR,0.5725,0.6497,0.0772,CAR,0.5725,CAR,0.6497,-0.0,-81.9,,"Lamar Jackson (QB, inicia Tyler Huntley)",provisional: reporte sem. 10
+11,2026-11-22 12:00:00-06:00,JAX,NYG,0.3755,0.3249,-0.0506,JAX,0.6245,JAX,0.6751,-81.9,-1.8,"Jaxson Dart (QB, inicia J.J. McCarthy)",,provisional: reporte sem. 10
+11,2026-11-22 12:00:00-06:00,MIA,BUF,0.8756,0.9169,0.0413,BUF,0.8756,BUF,0.9169,-0.0,-92.4,,"Malik Willis (QB, inicia Kyle McCord); Chris Bell (WRTE, Doubtful sem. 10)",provisional: reporte sem. 10
+11,2026-11-22 12:00:00-06:00,NO,CHI,0.7952,0.7962,0.001,CHI,0.7952,CHI,0.7962,-0.0,-0.0,,,provisional: reporte sem. 9
+11,2026-11-22 12:00:00-06:00,TB,DET,0.7644,0.7639,-0.0005,DET,0.7644,DET,0.7639,-9.0,-12.6,,,provisional: reporte sem. 10
+11,2026-11-22 12:00:00-06:00,TEN,DAL,0.7242,0.7344,0.0102,DAL,0.7242,DAL,0.7344,-3.6,-18.3,,"Carnell Tate (WRTE, Out sem. 10)",provisional: reporte sem. 10
+11,2026-11-22 15:05:00-06:00,NYJ,LAC,0.6762,0.6696,-0.0066,LAC,0.6762,LAC,0.6696,-1.8,-12.5,,,provisional: reporte sem. 10
+11,2026-11-22 15:25:00-06:00,LV,DEN,0.8424,0.8323,-0.0101,DEN,0.8424,DEN,0.8323,-3.6,-0.0,,,provisional: reporte sem. 9
+11,2026-11-22 15:25:00-06:00,PIT,PHI,0.3748,0.2601,-0.1147,PIT,0.6252,PIT,0.7399,-100.2,-1.8,"Jalen Hurts (QB, inicia Joe Milton III); Dontayvion Wicks (WRTE, Out sem. 9)",,provisional: reporte sem. 9
+11,2026-11-22 19:20:00-06:00,MIN,SF,0.6124,0.6271,0.0147,SF,0.6124,SF,0.6271,-0.0,-22.5,,"T.J. Hockenson (WRTE, Out sem. 10)",provisional: reporte sem. 10
+11,2026-11-23 19:15:00-06:00,CIN,WAS,0.3897,0.3833,-0.0064,CIN,0.6103,CIN,0.6167,-8.4,-0.0,,,provisional: reporte sem. 10

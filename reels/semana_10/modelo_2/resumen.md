@@ -71,6 +71,6 @@ _Ojo: el reporte de lesiones de esta semana aún no sale. Vuelve a correr `pytho
 
 ## Destacados
 
-- **El más claro** · BUF @ NYJ: El favorito más claro de la semana: BUF gana con 83%
-- **La moneda al aire** · PIT @ CIN: Prácticamente 50-50: el partido más parejo de la semana
-- **La sorpresa** · HOU @ CLE: Las Vegas ve muy favorito a HOU (67%). El modelo lo ve más parejo: 50%.
+- **El más claro** · BUF @ NYJ: El favorito más claro de la semana: BUF gana con 82.9%
+- **La moneda al aire** · PIT @ CIN: Solo 0.4 puntos de diferencia: el partido más parejo de la semana
+- **La sorpresa** · HOU @ CLE: Las Vegas ve muy favorito a HOU (66.9%). El modelo lo ve más parejo: 50.3%.

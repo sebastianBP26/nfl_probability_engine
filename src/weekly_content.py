@@ -155,7 +155,7 @@ ZONAS_CORTAS = {"America/Mexico_City": "CDMX", "America/New_York": "ET",
                 "Europe/Madrid": "Madrid"}
 
 
-DECIMALES = 0   # porcentajes enteros en todo lo que se publica
+DECIMALES = 1   # decimales en los textos de cada partido (un 50-50 deja ver al favorito)
 RANKING_N = 10  # equipos en la tabla del ranking (04_top_elo)
 
 
@@ -1046,9 +1046,11 @@ def _separar_px(ys_px, gap):
 # ══════════════════════════════════════════════════════════════════════════════
 # 6 · Gráficas
 # ══════════════════════════════════════════════════════════════════════════════
-def graf_aciertos_semana(tabla, threshold, ruta):
+def graf_aciertos_semana(tabla, threshold, ruta, cambio=None):
     """Récord acumulado en píldora · barras = % de aciertos de cada semana ·
-    línea = % acumulado. Los conteos van como récord de la NFL."""
+    línea = % acumulado. Los conteos van como récord de la NFL.
+    cambio: semana desde la que se publica el Modelo 2. Las semanas anteriores
+    (Modelo 1) van en gris y una línea vertical marca la liberación del Modelo 2."""
     t = tabla.reset_index(drop=True)
     u = t.iloc[-1]
     fig = _lienzo("La prueba", "¿Cómo va el modelo?",
@@ -1068,7 +1070,10 @@ def graf_aciertos_semana(tabla, threshold, ruta):
     x = np.arange(n)
     pct = t["pct_aciertos"].fillna(0).to_numpy()
     # semana con 50 % o más: Blueberry · semana perdedora: Cherry Tomato
-    ax.bar(x, pct, width=0.62, color=[AZUL if p >= 0.5 else ROJO for p in pct], zorder=2)
+    semanas = t["semana"].to_numpy()
+    m1 = (semanas < cambio) if cambio is not None else np.zeros(n, bool)
+    ax.bar(x, pct, width=0.62, zorder=2,
+           color=[ROJO if p < 0.5 else (NEUTRO if es_m1 else AZUL) for p, es_m1 in zip(pct, m1)])
 
     vertical = n > 9
     fs = 24 if n <= 6 else (21 if n <= 9 else 18)
@@ -1090,10 +1095,37 @@ def graf_aciertos_semana(tabla, threshold, ruta):
     ax.axhline(0.5, color=TENUE, lw=_lw(2), ls=(0, (4, 3)), zorder=3)
     fig.text(_X(100), _fig_y(ax, 0.5), "50%", ha="right", va="center", fontsize=_ft(15),
              color=TENUE)
+    hito = cambio is not None and m1.any() and not m1.all()
+    if hito:
+        # Hito: liberación del Modelo 2 (entre la última semana del Modelo 1 y la primera del 2)
+        xh = int(m1.sum()) - 0.5
+        ytop = ax.get_ylim()[1]
+        ax.plot([xh, xh], [0, ytop * 0.97], color=AZUL_TXT, lw=_lw(3), zorder=4)
+        ax.plot([xh], [ytop * 0.97], marker="o", ms=_fs(11), color=AZUL_TXT, zorder=8)
+        ha = "right" if xh > n - 2.5 else "left"
+        dx = -_fs(8) if ha == "right" else _fs(8)
+        ax.annotate(f"S{cambio}: llega el Modelo 2", (xh, ytop * 0.97), xytext=(dx, 0),
+                    textcoords="offset points", ha=ha, va="center", fontsize=_ft(17),
+                    fontweight="bold", color=AZUL_TXT, zorder=8)
+        ax.annotate("Elo + lesiones y ausencias", (xh, ytop * 0.97), xytext=(dx, -_fs(18)),
+                    textcoords="offset points", ha=ha, va="center", fontsize=_ft(14),
+                    color=TEXTO2, zorder=8)
     _eje_x(ax, [f"S{int(w)}" for w in t["semana"]], px=21 if n <= 10 else 16)
 
-    _texto(fig, 520, 1372, "■ récord de la semana", 21, AZUL_TXT, ha="right")
-    _texto(fig, 560, 1372, "● % acumulado", 21, TEXTO)
+    if hito:
+        # leyenda centrada con el ancho real de cada texto (las fuentes se escalan por formato)
+        items = [("■ Modelo 1 (Elo)", TEXTO2), ("■ Modelo 2 (Elo + ausencias)", AZUL_TXT),
+                 ("● % acumulado", TEXTO)]
+        tam = max(19 * _FMT.escala, FUENTE_MIN)
+        anchos = [_ancho_texto(s, tam, bold=False) for s, _ in items]
+        sep = 36 * _FMT.escala
+        x = 540 - (sum(anchos) + sep * (len(items) - 1)) / 2
+        for (s, col), a in zip(items, anchos):
+            _texto(fig, x, 1372, s, 19, col)
+            x += a + sep
+    else:
+        _texto(fig, 520, 1372, "■ récord de la semana", 21, AZUL_TXT, ha="right")
+        _texto(fig, 560, 1372, "● % acumulado", 21, TEXTO)
     _texto(fig, 540, 1410, "- - -  50% = moneda al aire", 15, TENUE, ha="center")
 
     comp = ["Siempre el local: "
@@ -1514,7 +1546,7 @@ def graf_duelo(r, etiqueta, explicacion, ruta, zona=ZONA_HORARIA, rec=None, rank
     fig = _lienzo(etiqueta, f"{r.away_team} @ {r.home_team}",
                   _fmt_fecha_hora(r.kickoff, zona, getattr(r, "hora_confirmada", True)), tema=tema)
 
-    p_vis, p_loc = par_enteros(r.p_away_pre)
+    p_vis, p_loc = par_decimal(r.p_away_pre)   # un decimal: 50.3 vs 49.7, no 50 vs 50
     fav_vis = float(r.p_away_pre) > float(r.p_home_pre)
     a, h = r.away_team, r.home_team
     for team, cx, rol, fav in ((a, 270, "visitante", fav_vis), (h, 810, "local", not fav_vis)):
@@ -1524,9 +1556,10 @@ def graf_duelo(r, etiqueta, explicacion, ruta, zona=ZONA_HORARIA, rec=None, rank
     _texto(fig, 540, 620, "@", 32, TENUE, ha="center")
 
     _barra(fig, MARGEN, 806, ANCHO_PX - MARGEN, 898,
-           [(p_vis, AZUL if fav_vis else LINEA), (p_loc, LINEA if fav_vis else AZUL)], 40)
+           [(p_vis, AZUL if fav_vis else LINEA), (p_loc, LINEA if fav_vis else AZUL)], 40,
+           decimales=1)
     p_fav, fav = (p_vis, a) if fav_vis else (p_loc, h)
-    _texto(fig, 540, 932, f"Aun con {p_fav}%, {fav} no gana {100 - p_fav} de cada 100 veces",
+    _texto(fig, 540, 932, f"Aun con {p_fav:.1f}%, {fav} no gana {100 - round(p_fav)} de cada 100 veces",
            15, TENUE, ha="center")
 
     # Tabla comparativa: en negritas el valor que favorece
@@ -1571,7 +1604,11 @@ def escribir_resumen(ruta, semana, threshold, tabla, calib, ev, week_games, dest
     if len(tabla):
         u = tabla.iloc[-1]
         w = int(u.semana)
-        L += [f"## ¿Cómo va el modelo? (semanas 1–{w} · pick si prob. > {threshold:.0%})", "",
+        L += [f"## ¿Cómo va el modelo? (semanas 1–{w} · pick si prob. > {threshold:.0%})", ""]
+        if nota_calibracion:
+            L += [f"_Historial publicado · {nota_calibracion[1]} (pronósticos congelados "
+                  "antes de cada partido)._", ""]
+        L += [
               f"- Récord del modelo en la temporada (aciertos-fallos-empates): "
               f"**{u.acum_record} ({_pct(u.acum_pct_aciertos)})**",
               f"- Semana {w}: {u.record} ({_pct(u.pct_aciertos)})",
@@ -1828,7 +1865,7 @@ def generar_contenido(season=SEASON, threshold=THRESHOLD, semana=None, actualiza
     if m2 is not None and imagenes_modelo_2:
         print("── 2-3 · Modelo 2 (Elo + ausencias) · métricas e imágenes " + "─" * 15)
         # Calibración del historial PUBLICADO: Modelo 1 antes del cambio, Modelo 2 desde él
-        calib_pub, nota = None, None
+        calib_pub, nota, ev_pub = None, None, None
         cambio = CAMBIO_MODELO.get(season)
         if cambio is not None and semana >= cambio:
             ev_pub = libro_pron.evaluar_publicado(libro_pron.cargar_libro(season), games,
@@ -1846,7 +1883,9 @@ def generar_contenido(season=SEASON, threshold=THRESHOLD, semana=None, actualiza
                 m2["enriquecido"], tabla_elo(m2["elo_evolution"]), semana, carpeta / "modelo_2",
                 threshold, zona, top_n, historias, formatos, seccion_modelos,
                 titulo=f"# Semana {semana} · Modelo 2: Elo + ausencias",
-                calib_override=calib_pub, nota_calibracion=nota)
+                calib_override=calib_pub, nota_calibracion=nota,
+                ev_override=ev_pub if ev_pub is not None and len(ev_pub) else None,
+                cambio=cambio)
         m2["salida"] = out2
         out["rutas"] += out2["rutas"]
 
@@ -1855,20 +1894,31 @@ def generar_contenido(season=SEASON, threshold=THRESHOLD, semana=None, actualiza
 
 def metricas_e_imagenes(games, elo_tab, semana, carpeta, threshold, zona, top_n=TOP_N,
                         historias=True, formatos=None, seccion_modelos=None, titulo=None,
-                        calib_override=None, nota_calibracion=None):
+                        calib_override=None, nota_calibracion=None, ev_override=None,
+                        cambio=None):
     """
     Métricas (semanas < semana), todas las imágenes y resumen.md de UN modelo.
     games: enriquecer() del modelo · elo_tab: tabla_elo() de su evolución de Elo.
     calib_override: calibración a usar en 11_calibracion.png, calibracion.csv y
         resumen.md en lugar de la del propio modelo (la del modelo se guarda
         aparte en calibracion_modelo.csv). nota_calibracion: texto de la gráfica.
+    ev_override: evaluación del historial PUBLICADO (Modelo 1 antes de `cambio`,
+        Modelo 2 desde `cambio`) para 01_aciertos_por_semana.png,
+        metricas_semanales.csv, evaluacion_partidos.csv y resumen.md. Las del
+        propio modelo se guardan en *_modelo.csv.
     """
     carpeta = Path(carpeta)
     carpeta.mkdir(parents=True, exist_ok=True)
     print("   Métricas")
     ev = evaluar_partidos(games[games["week"] < semana], threshold)
+    ev_modelo = ev
+    if ev_override is not None:
+        ev.to_csv(carpeta / "evaluacion_partidos_modelo.csv", index=False)
+        (metricas_por_semana(ev) if len(ev) else pd.DataFrame()).to_csv(
+            carpeta / "metricas_semanales_modelo.csv", index=False)
+        ev = ev_override
     tabla = metricas_por_semana(ev) if len(ev) else pd.DataFrame()
-    calib = calibracion(ev)
+    calib = calibracion(ev_modelo)
     if calib_override is not None:
         calib.to_csv(carpeta / "calibracion_modelo.csv", index=False)
         calib = calib_override
@@ -1896,7 +1946,8 @@ def metricas_e_imagenes(games, elo_tab, semana, carpeta, threshold, zona, top_n=
         img = carpeta / nombre_fmt
         with plt.rc_context(ESTILO), usar_formato(FORMATOS[nombre_fmt]):
             if len(tabla):
-                rutas.append(graf_aciertos_semana(tabla, threshold, img / "01_aciertos_por_semana.png"))
+                rutas.append(graf_aciertos_semana(tabla, threshold, img / "01_aciertos_por_semana.png",
+                                                 cambio=cambio))
             if semana > 1:
                 rutas.append(graf_suben_caen(
                     elo_tab[semana] - elo_tab[semana - 1], resultados_semana(games, semana - 1),

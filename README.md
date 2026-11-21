@@ -555,6 +555,38 @@ python src/weekly_content.py --semana 5         # rebuild week 5 content
 python src/weekly_content.py --sin-actualizar   # don't rewrite data/processed
 ```
 
+IG channel stats (after `weekly_content.py`, so Model 2's forecasts are already frozen):
+
+```bash
+python src/canal_stats.py                       # automatic week
+python src/canal_stats.py --semana 10           # rebuild week 10
+python src/canal_stats.py --sin-partidos        # only the position slides
+```
+
+---
+
+## IG channel · cumulative stats (2026)
+
+Weekly slides for the Instagram channel with the season-to-date numbers (weeks 1 … N-1), in the same "Black Sea" design system as the reels. They are saved to `canal/semana_XX/`, in `size_2` (1080×1920) and `size_1` (1080×902).
+
+| File | Content |
+|---|---|
+| `01_qb` … `06_k` | One slide per position: QB, RB, WR, TE, DEF and K. Each one has **cumulative leaders** (top 5), the **most consistent** players (top 5 by CV, among the better half of the position, with a p20–p80 range bar) and a **highlight pill**, e.g. "8/8 games with 7+ points". |
+| `07_resumen` | A 2×3 dashboard with the leader and the most consistent player at each position. |
+| `partidos/NN_AWAY_HOME` | One dashboard per game of the week, with five blocks: **Model 2 (Elo + absences)** win probability, Las Vegas spread and total, offense and defense side by side, key players (QB/RB1/WR1/TE1: mean ± SD and % of games with a TD) and the **key matchup**. The key matchup is the player whose position faces the most permissive opposing defense. |
+| `tablas/*.csv` | The source of every number: `acumulado_{pos}.csv`, `equipos.csv` and `partidos.csv` (which includes Model 2's probability). |
+| `resumen.md` | Supporting text for the channel posts. |
+
+**Data sources:**
+- `nflreadpy`: `load_player_stats`, `load_team_stats` and `load_schedules`.
+- Forecasts come from the frozen forecast ledger (`model_registry.pronostico_vigente`, `modelo == "elo_ausencias"`). They are never recalculated, and Model 1 is never used as a fallback.
+
+**Filters:**
+- A game counts toward a player only with real volume: QB 15+ attempts, RB 6+ touches, WR 3+ targets, TE 2+ targets, K 1+ kick.
+- To appear in a table, a player must have played at least 60% of their team's games.
+
+The data and stats functions live in `src/player_stats.py`, which is shared with the Notebook 06 logic.
+
 ---
 
 ## Next steps
