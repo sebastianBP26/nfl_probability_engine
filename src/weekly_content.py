@@ -12,28 +12,42 @@ Córrelo cada martes (después del Monday Night Football). En un solo paso:
   2. MÉTRICAS  Evalúa al modelo con los partidos ya jugados. El umbral de
                probabilidad para contar un pick es un parámetro (--threshold,
                default: mayor a 0.50).
-  3. GRÁFICAS  Imágenes verticales 1080x1920 para el reel, con el mismo lienzo
-               de papel cuadriculado:
+  3. GRÁFICAS  Las mismas imágenes en dos tamaños, con el sistema visual
+               "Black Sea" (ver Estilo y FORMATOS):
+                 reels/semana_XX/size_1/  1080x902   (publicación)
+                 reels/semana_XX/size_2/  1080x1920  (reel / historia)
+               Cada carpeta lleva:
                  01  aciertos por semana + acumulado
                  02  quién sube / quién cae en ELO (la semana pasada)
                  03  quién sube / quién cae en ELO (desde la pretemporada)
-                 04  top 5 según el ELO
+                 04  top 10 según el ELO (tabla con cambio de lugar)
                  XX  picks de la semana, en orden de juego y con escudos
                      (XX = semana - 1: semana 6 -> 05_picks_semana_06)
-                 06  el más seguro
+                 06  el más claro
                  07  la moneda al aire
                  08  la sorpresa
                  09  evolución del ELO de la temporada (top 5 en color)
                  10  evolución del ELO por división (los 32 equipos)
                  partidos/  una historia por partido (récord, escudos,
                             probabilidad y comentario) + comentarios.md
-               + resumen.md con los números para el guion y las tablas en CSV.
+               + resumen.md con los números para el guion y las tablas en CSV
+               (en la raíz de reels/semana_XX/).
+  4. MODELOS   Corre también el Modelo 2 (Elo + ausencias, src/elo_ausencias.py),
+               congela los pronósticos de AMBOS modelos en el libro
+               data/processed/pronosticos/pronosticos_<season>.csv y agrega a
+               resumen.md la sección "Modelo 1 vs Modelo 2" (+ comparacion_modelos.csv
+               y ausencias_semana_XX.csv). Las imágenes de la raíz son del Modelo 1;
+               el set completo del Modelo 2 va en reels/semana_XX/modelo_2/.
 
 Uso (desde la raíz del repo):
-    python src/weekly_content.py                    # semana automática
+    python src/weekly_content.py                    # semana automática (martes)
+    python src/weekly_content.py --solo-pronosticos # viernes/sábado: re-congela el Modelo 2
+                                                    # con el reporte final de lesiones
+    python src/weekly_content.py --sin-ausencias    # solo el Modelo 1, como antes
+    python src/weekly_content.py --formatos size_1  # solo las imágenes 1080x902
     python src/weekly_content.py --threshold 0.6    # solo cuenta picks con > 60 %
     python src/weekly_content.py --semana 5         # rehacer el contenido de la semana 5
-    python src/weekly_content.py --sin-actualizar   # no reescribe data/processed
+    python src/weekly_content.py --sin-actualizar   # no reescribe data/processed ni el libro
 
 Desde un notebook:
     import sys; sys.path.append('..')
@@ -48,12 +62,18 @@ import argparse
 import sys
 import textwrap
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.font_manager import FontProperties
+from matplotlib.patches import Circle, FancyBboxPatch, Rectangle
+from matplotlib.textpath import TextPath
+from matplotlib.ticker import FuncFormatter
 import pandas as pd
 from PIL import Image, ImageDraw
 
@@ -67,6 +87,7 @@ from src.weekly_probabilities import (  # noqa: E402
     build_weekly_snapshots,
     current_week_probabilities,
 )
+from src import model_registry as libro_pron  # noqa: E402
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Parámetros
@@ -84,37 +105,49 @@ ALTA_CONFIANZA = 0.60   # desde aquí la barra del pick va en color acento
 ZONA_HORARIA = "America/Mexico_City"
 TOP_N = 5
 MOSTRAR_VEGAS = True    # comparar contra el favorito de Las Vegas en la gráfica 01
+# Semana desde la que el modelo PUBLICADO es el Modelo 2 (Elo + ausencias). La
+# calibración de semana_XX/modelo_2/ junta: Modelo 1 antes de esa semana y
+# Modelo 2 desde ella (lo congelado en el libro de pronósticos).
+CAMBIO_MODELO = {2026: 10}
 
 DATA_DIR = ROOT / "data" / "processed"
 LOGOS_DIR = ROOT / "data" / "logos"      # caché local de escudos
 REELS_DIR = ROOT / "reels"               # una carpeta por semana
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Estilo — papel cuadriculado del reel
+# Estilo — sistema visual "Black Sea" (diseño plano: sin degradados, sombras,
+# texturas ni cuadrícula de fondo)
 # ══════════════════════════════════════════════════════════════════════════════
-FONDO = "#EFE6DC"
-TINTA = "#1E1B18"
-ACENTO = "#7A6A50"       # dorado/café: favorito, lo que sube
-FRIO = "#C9CFE0"         # azul grisáceo: rival, lo secundario
-ROJO = "#B5523B"         # lo que cae
-GRIS = "#8C8578"
-CUADRICULA = "#D9CEC0"
-PISTA = "#E2D8CB"        # fondo de las barras de probabilidad
-FRIO_TEXTO = "#8E97B5"   # FRIO con contraste suficiente para texto
+FONDO = "#332E32"        # Black Sea: siempre liso
+PANEL = "#3E383D"        # paneles, pistas de barras y filas resaltadas
+LINEA = "#554E54"        # líneas divisorias y segmentos secundarios
+NEUTRO = "#686167"       # segmento neutro de las barras
+TEXTO = "#F6F2EE"        # texto principal (blanco cálido)
+TEXTO2 = "#C2BBC0"       # texto secundario: etiquetas, valores de apoyo
+TENUE = "#8E878C"        # notas al pie, encabezados de columna
+AZUL = "#7778DE"         # Blueberry Pie (relleno): favorito / positivo / lo que sube
+AZUL_TXT = "#8F90EC"     # Blueberry como texto sobre el fondo
+ROJO = "#F44631"         # Cherry Tomato (relleno): protagonista / sorpresa / lo que cae
+ROJO_TXT = "#F65A47"     # Cherry Tomato como texto sobre el fondo
+BLANCO = "#FFFFFF"       # texto encima de un relleno (siempre en negritas)
 
-W, H, DPI = 9, 16, 120   # 1080 x 1920
-# Zona segura: Instagram/TikTok tapan arriba (~12 %) y abajo (~18 %)
-SAFE_TOP, SAFE_BOTTOM = 0.84, 0.20
+W, H, DPI = 9, 16, 120   # 1080 x 1920 — el lienzo de diseño (ver FORMATOS)
+ANCHO_PX, ALTO_PX = W * DPI, H * DPI
+MARGEN = 64              # márgenes laterales (px)
+FUENTE_MIN = 11          # px: ningún texto baja de aquí al escalar a 1080x902
+# Zona segura de la historia de IG: el contenido va entre y = 300 y y = 1780 px
+Y_ETIQUETA, Y_TITULO, Y_SUBTITULO, Y_LINEA, Y_PIE = 300, 352, 436, 494, 1650
 
 ESTILO = {
     "font.family": "DejaVu Sans",
-    "text.color": TINTA,
-    "axes.labelcolor": TINTA,
-    "xtick.color": TINTA,
-    "ytick.color": TINTA,
+    "text.color": TEXTO,
+    "axes.labelcolor": TEXTO,
+    "xtick.color": TEXTO2,
+    "ytick.color": TENUE,
+    "axes.unicode_minus": False,
 }
 
-DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 MESES = ["ene", "feb", "mar", "abr", "may", "jun",
          "jul", "ago", "sep", "oct", "nov", "dic"]
 ZONAS_CORTAS = {"America/Mexico_City": "CDMX", "America/New_York": "ET",
@@ -122,11 +155,12 @@ ZONAS_CORTAS = {"America/Mexico_City": "CDMX", "America/New_York": "ET",
                 "Europe/Madrid": "Madrid"}
 
 
-DECIMALES = 1   # decimales en las probabilidades que se muestran
+DECIMALES = 1   # decimales en los textos de cada partido (un 50-50 deja ver al favorito)
+RANKING_N = 10  # equipos en la tabla del ranking (04_top_elo)
 
 
 def fmt_pct(p, d=DECIMALES):
-    """0.5012 -> '50.1%'"""
+    """0.5012 -> '50%'"""
     return f"{p:.{d}%}"
 
 
@@ -134,10 +168,22 @@ def fmt_par(p_a, p_b, d=DECIMALES):
     """
     Formatea dos probabilidades complementarias para que siempre sumen 100.
     Redondea la primera y la segunda es 100 menos la primera, para evitar
-    casos como 50.1% vs 50.0%.
+    casos como 51% vs 50%.
     """
     a = round(p_a * 100, d)
     return f"{a:.{d}f}%", f"{100 - a:.{d}f}%"
+
+
+def par_enteros(p_a):
+    """Probabilidad y su complemento como enteros que suman exactamente 100."""
+    a = int(round(float(p_a) * 100))
+    return a, 100 - a
+
+
+def par_decimal(p_a, d=1):
+    """Como par_enteros pero con d decimales (50.3 / 49.7): así un 50-50 deja ver al favorito."""
+    a = round(float(p_a) * 100, d)
+    return a, round(100 - a, d)
 # ══════════════════════════════════════════════════════════════════════════════
 # 1 · Datos — lo mismo que hace el Notebook 05
 # ══════════════════════════════════════════════════════════════════════════════
@@ -207,14 +253,18 @@ def enriquecer(games_df, schedule, zona=ZONA_HORARIA):
     # nflverse publica gameday + gametime en hora del Este (ET)
     et, local = ZoneInfo("America/New_York"), ZoneInfo(zona)
 
+    def _hora_ok(gametime):
+        return isinstance(gametime, str) and ":" in gametime
+
     def _kickoff(gameday, gametime):
         if pd.isna(gameday):
             return pd.NaT
-        hora = gametime if isinstance(gametime, str) and ":" in gametime else "13:00"
+        hora = gametime if _hora_ok(gametime) else "13:00"
         dt = datetime.strptime(f"{str(gameday)[:10]} {hora[:5]}", "%Y-%m-%d %H:%M")
         return pd.Timestamp(dt.replace(tzinfo=et).astimezone(local))
 
     g["kickoff"] = [_kickoff(d, t) for d, t in zip(g["gameday"], g["gametime"])]
+    g["hora_confirmada"] = [_hora_ok(t) for t in g["gametime"]]   # si no, "por confirmar"
 
     # Las Vegas: prob. implícita del moneyline, quitando el margen de la casa
     ph, pa = _prob_moneyline(g["home_moneyline"]), _prob_moneyline(g["away_moneyline"])
@@ -495,7 +545,7 @@ def elegir_destacados(week_games):
     """
     Los tres partidos del reel (siempre tres partidos distintos):
 
-    El más seguro      mayor probabilidad del favorito.
+    El más claro       mayor probabilidad del favorito.
     La moneda al aire  probabilidad más cercana a 50 %.
     La sorpresa        donde el modelo más contradice a Las Vegas: elige a un
                        equipo que el moneyline tiene como no favorito (el de
@@ -509,8 +559,8 @@ def elegir_destacados(week_games):
     resto = g.drop([seguro, moneda])
 
     r = g.loc[seguro]
-    out = [("El más seguro", r,
-            f"El pick con más confianza de la semana:\n{r.favorito} gana con {fmt_pct(r.p_fav)}")]
+    out = [("El más claro", r,
+            f"El favorito más claro de la semana:\n{r.favorito} gana con {fmt_pct(r.p_fav)}")]
 
     r = g.loc[moneda]
     # diferencia con los mismos % redondeados que se ven en la gráfica
@@ -563,38 +613,14 @@ def _load_logo_urls():
         teams_desc = nfl.load_teams().to_pandas()
         _logo_urls = {
             "espn": dict(zip(teams_desc["team_abbr"], teams_desc["team_logo_espn"])),
+            # versión para fondo oscuro (la misma ruta de ESPN con /500-dark/)
+            "espn_dark": {t: u.replace("/500/", "/500-dark/") if isinstance(u, str) else u
+                          for t, u in zip(teams_desc["team_abbr"], teams_desc["team_logo_espn"])},
             # respaldo: escudo cuadrado de nflverse (fondo sólido, se recorta en círculo)
             "squared": dict(zip(teams_desc["team_abbr"], teams_desc["team_logo_squared"])),
-            # colores oficiales, para las líneas de la gráfica de evolución del Elo
-            "color": dict(zip(teams_desc["team_abbr"], teams_desc["team_color"])),
-            "color2": dict(zip(teams_desc["team_abbr"], teams_desc["team_color2"])),
             "division": dict(zip(teams_desc["team_abbr"], teams_desc["team_division"])),
         }
     return _logo_urls
-
-
-def _luminancia(color):
-    r, g, b = (int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
-def _colores_equipos(teams, respaldo=(ACENTO, ROJO, FRIO_TEXTO, TINTA, GRIS)):
-    """Un color distinto por equipo: el oficial; si ya se usó o es muy claro
-    para el fondo, el secundario."""
-    try:
-        info = _load_logo_urls()
-    except Exception:  # noqa: BLE001
-        info = {"color": {}, "color2": {}}
-    usados, out = set(), {}
-    for i, team in enumerate(teams):
-        opciones = [info["color"].get(team), info["color2"].get(team), respaldo[i % len(respaldo)]]
-        for c in opciones:
-            if (isinstance(c, str) and len(c) == 7 and c.startswith("#")
-                    and c.upper() not in usados and _luminancia(c) <= 0.7):
-                break
-        out[team] = c
-        usados.add(c.upper())
-    return out
 
 
 def _descargar(url, destino, timeout=10):
@@ -613,7 +639,8 @@ def _descargar(url, destino, timeout=10):
 
 def _archivo_logo(team, fuente):
     """Ruta local del escudo; lo descarga la primera vez."""
-    carpeta = LOGOS_DIR if fuente == "espn" else LOGOS_DIR / f"_{fuente}"
+    carpeta = (LOGOS_DIR if fuente == "espn" else
+               LOGOS_DIR / "_dark" if fuente == "espn_dark" else LOGOS_DIR / f"_{fuente}")
     ruta = carpeta / f"{team}.png"
     if ruta.exists():
         return ruta
@@ -676,7 +703,8 @@ def obtener_logo(team, px):
     if clave in _logo_cache:
         return _logo_cache[clave]
     img = None
-    for fuente, preparar in (("espn", _recortar_transparente), ("squared", _circulo)):
+    for fuente, preparar in (("espn_dark", _recortar_transparente),
+                             ("espn", _recortar_transparente), ("squared", _circulo)):
         ruta = _archivo_logo(team, fuente)
         if ruta is None:
             continue
@@ -692,26 +720,222 @@ def obtener_logo(team, px):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5 · Lienzo y utilidades de dibujo
+# 5 · Lienzo, formatos y utilidades de dibujo
 # ══════════════════════════════════════════════════════════════════════════════
-def _lienzo(etiqueta, titulo, pie="NFL · ELO"):
-    fig = plt.figure(figsize=(W, H), dpi=DPI, facecolor=FONDO)
-    bg = fig.add_axes([0, 0, 1, 1], zorder=-1)
-    bg.set_facecolor(FONDO)
-    bg.set_xlim(0, 9)
-    bg.set_ylim(0, 16)
-    for x in range(10):
-        bg.axvline(x, color=CUADRICULA, lw=0.8)
-    for y in range(17):
-        bg.axhline(y, color=CUADRICULA, lw=0.8)
-    bg.axis("off")
+class Formato(NamedTuple):
+    """
+    Tamaño de la imagen. Todas las gráficas se diseñan en pixeles del lienzo
+    vertical 1080x1920 (x desde la izquierda, y desde arriba); la franja
+    y0 → y1 de ese diseño (fracciones desde abajo) se lleva a dest0 → dest1 del
+    lienzo real, y fuentes / escudos se escalan en la misma proporción.
+    """
+    ancho: float          # pulgadas (x DPI = pixeles)
+    alto: float
+    y0: float = 0.0
+    y1: float = 1.0
+    dest0: float = 0.0
+    dest1: float = 1.0
 
-    fig.text(0.5, SAFE_TOP, etiqueta.upper(), ha="center", fontsize=20,
-             color=ACENTO, fontweight="bold")
-    fig.text(0.5, SAFE_TOP - 0.035, titulo, ha="center", va="top",
-             fontsize=32, fontweight="bold")
-    fig.text(0.06, SAFE_BOTTOM - 0.05, f"— {pie}", fontsize=14, color=GRIS)
-    fig.text(0.94, SAFE_BOTTOM - 0.05, "@SebsBarroso", fontsize=14, color=GRIS, ha="right")
+    @property
+    def k(self):
+        """Factor de la coordenada y (fracción del diseño -> fracción del lienzo)."""
+        return (self.dest1 - self.dest0) / (self.y1 - self.y0)
+
+    @property
+    def escala(self):
+        """Factor en pixeles: fuentes, escudos, íconos."""
+        return self.k * self.alto / H
+
+
+FORMATOS = {
+    # 1080x902 (panel de video): la franja del vertical que va del encabezado
+    # (y = 262 px) al pie (y = 1670 px), escalada para que quepa
+    "size_1": Formato(W, 902 / DPI, y0=1 - 1670 / ALTO_PX, y1=1 - 262 / ALTO_PX,
+                      dest0=0.03, dest1=0.97),
+    # 1080x1920 (historia de IG): el diseño original, sin cambios
+    "size_2": Formato(W, H),
+}
+_FMT = FORMATOS["size_2"]
+
+
+@contextmanager
+def usar_formato(fmt):
+    """Dibuja con `fmt` dentro del bloque with."""
+    global _FMT
+    previo, _FMT = _FMT, fmt
+    try:
+        yield fmt
+    finally:
+        _FMT = previo
+
+
+def _y(v):
+    """y del diseño (fracción desde abajo) -> y del lienzo actual (fracción de la figura)."""
+    return _FMT.dest0 + (v - _FMT.y0) * _FMT.k
+
+
+def _X(px):
+    """x en px del diseño -> fracción de la figura (el ancho no se escala)."""
+    return px / ANCHO_PX
+
+
+def _Y(px):
+    """y en px del diseño (desde arriba) -> fracción de la figura actual."""
+    return _y(1 - px / ALTO_PX)
+
+
+def _fs(n):
+    """Tamaño de marcador en puntos escalado al formato."""
+    return n * _FMT.escala
+
+
+def _ft(px, minimo=FUENTE_MIN):
+    """Fuente en px del lienzo de 1080 de ancho -> puntos, escalada al formato."""
+    return max(px * _FMT.escala, minimo) * 72 / DPI
+
+
+def _lw(px):
+    """Grosor de línea en px -> puntos (las líneas finas no se escalan)."""
+    return px * 72 / DPI
+
+
+def _e(px):
+    """Distancia horizontal que crece con la fuente (íconos, píldoras)."""
+    return px * _FMT.escala
+
+
+def _px(n):
+    """Tamaño de escudo en pixeles escalado al formato."""
+    return max(1, int(round(n * _FMT.escala)))
+
+
+def _ancho_texto(s, px, bold=True):
+    """Ancho real (px) de un texto con DejaVu Sans a px pixeles."""
+    prop = FontProperties(family="DejaVu Sans", weight="bold" if bold else "normal")
+    return TextPath((0, 0), s, size=px, prop=prop).get_extents().width
+
+
+def _capa(fig):
+    """Ejes en pixeles reales del lienzo, para rectángulos, círculos y líneas."""
+    ax = getattr(fig, "_capa_px", None)
+    if ax is None:
+        w, h = fig.get_size_inches() * fig.dpi
+        ax = fig.add_axes([0, 0, 1, 1], facecolor="none")
+        ax.set_xlim(0, w)
+        ax.set_ylim(0, h)
+        ax.axis("off")
+        fig._capa_px = ax
+    return ax
+
+
+def _a_px(fig, x, y):
+    """(x, y) del diseño -> pixeles reales del lienzo (origen abajo a la izquierda)."""
+    w, h = fig.get_size_inches() * fig.dpi
+    return _X(x) * w, _Y(y) * h
+
+
+def _caja(fig, x0, y0, x1, y1, color, radio=0):
+    """Rectángulo plano de (x0, y0) a (x1, y1) en px del diseño; radio en px."""
+    (X0, Ya), (X1, Yb) = _a_px(fig, x0, y1), _a_px(fig, x1, y0)
+    if radio:
+        p = FancyBboxPatch((X0, Ya), X1 - X0, Yb - Ya, facecolor=color, edgecolor="none",
+                           boxstyle=f"round,pad=0,rounding_size={_e(radio)}")
+    else:
+        p = Rectangle((X0, Ya), X1 - X0, Yb - Ya, facecolor=color, edgecolor="none")
+    _capa(fig).add_patch(p)
+
+
+def _hline(fig, x0, x1, y, color=LINEA, grosor=1):
+    (X0, Y), (X1, _) = _a_px(fig, x0, y), _a_px(fig, x1, y)
+    _capa(fig).plot([X0, X1], [Y, Y], color=color, lw=_lw(grosor), solid_capstyle="butt")
+
+
+def _vline(fig, x, y0, y1, color=LINEA, grosor=1):
+    (X, Y0), (_, Y1) = _a_px(fig, x, y0), _a_px(fig, x, y1)
+    _capa(fig).plot([X, X], [Y0, Y1], color=color, lw=_lw(grosor), solid_capstyle="butt")
+
+
+def _texto(fig, x, y, s, px, color=TEXTO, bold=False, ha="left", va="center",
+           minimo=FUENTE_MIN, **kw):
+    """Texto en (x, y) px del diseño, con tamaño en px."""
+    return fig.text(_X(x), _Y(y), s, fontsize=_ft(px, minimo), color=color,
+                    fontweight="bold" if bold else "normal", ha=ha, va=va, **kw)
+
+
+def _icono(fig, cx, cy, glifo):
+    """Ícono de sección: círculo Blueberry de 68 px con un glifo blanco en negritas."""
+    X, Y = _a_px(fig, cx, cy)
+    _capa(fig).add_patch(Circle((X, Y), _e(34), facecolor=AZUL, edgecolor="none"))
+    _texto(fig, cx, cy, glifo, 34, BLANCO, bold=True, ha="center")
+
+
+def _seccion(fig, y, glifo, titulo, pregunta):
+    """Ícono + título de sección (30 px) + subtítulo en forma de pregunta (20 px)."""
+    _icono(fig, MARGEN + _e(34), y, glifo)
+    x = MARGEN + _e(90)
+    _texto(fig, x, y - 14, titulo, 30, TEXTO, bold=True)
+    _texto(fig, x, y + 21, pregunta, 20, AZUL_TXT)
+
+
+def _pildora(fig, cx, y0, cifra, leyenda, ancho=540, alto=150):
+    """Píldora Cherry Tomato (radio 12): cifra grande en blanco + leyenda de 13 px."""
+    w = _e(ancho) / 2
+    _caja(fig, cx - w, y0, cx + w, y0 + alto, ROJO, radio=12)
+    _texto(fig, cx, y0 + alto * 0.44, cifra, 80, BLANCO, bold=True, ha="center")
+    _texto(fig, cx, y0 + alto * 0.83, leyenda, 13, BLANCO, bold=True, ha="center")
+
+
+def _barra(fig, x0, y0, x1, y1, segmentos, px, decimales=0):
+    """
+    Barra de probabilidad: segmentos [(valor, color)] que suman 100, con 2 px
+    de separación y el porcentaje en negritas centrado dentro de cada uno.
+    """
+    seg = [(v, c) for v, c in segmentos if v > 0]
+    total = (x1 - x0) - 2 * (len(seg) - 1)
+    x = x0
+    for v, color in seg:
+        w = total * v / 100
+        _caja(fig, x, y0, x + w, y1, color)
+        etiqueta, tam = f"{v:.{decimales}f}%", px
+        while tam > px * 0.6 and _ancho_texto(etiqueta, tam * _FMT.escala) > w - 10:
+            tam -= 1
+        if _ancho_texto(etiqueta, tam * _FMT.escala) <= w - 6:
+            _texto(fig, x + w / 2, (y0 + y1) / 2, etiqueta, tam, BLANCO, bold=True, ha="center")
+        x += w + 2
+
+
+_MODELO_PIE = None   # con usar_modelo("Elo + ausencias") el pie dice de qué modelo es
+
+
+@contextmanager
+def usar_modelo(nombre):
+    """Marca en el pie de cada imagen el modelo que la generó (None = Modelo 1, sin marca)."""
+    global _MODELO_PIE
+    previo, _MODELO_PIE = _MODELO_PIE, nombre
+    try:
+        yield
+    finally:
+        _MODELO_PIE = previo
+
+
+def _lienzo(etiqueta, titulo, subtitulo=None, tema="Modelo Elo"):
+    """
+    Fondo liso + encabezado (etiqueta Cherry, título, subtítulo, línea de 3 px)
+    + pie ("— TEMA · No es consejo de apuesta" y @samplesebs).
+    """
+    if _MODELO_PIE:
+        tema = f"{_MODELO_PIE} · {tema}"
+    fig = plt.figure(figsize=(_FMT.ancho, _FMT.alto), dpi=DPI, facecolor=FONDO)
+    _capa(fig)
+    _texto(fig, 540, Y_ETIQUETA, etiqueta.upper(), 33, ROJO_TXT, bold=True, ha="center", va="top")
+    _texto(fig, 540, Y_TITULO, titulo, 56, TEXTO, bold=True, ha="center", va="top")
+    if subtitulo:
+        _texto(fig, 540, Y_SUBTITULO, subtitulo, 25, TEXTO2, ha="center", va="top")
+    _hline(fig, MARGEN, ANCHO_PX - MARGEN, Y_LINEA, ROJO, 3)
+    _texto(fig, MARGEN, Y_PIE, f"— NFL · {tema.upper()} · No es consejo de apuesta", 16, TENUE,
+           minimo=12)
+    _texto(fig, ANCHO_PX - MARGEN, Y_PIE, "@samplesebs", 16, TEXTO2, bold=True, ha="right",
+           minimo=12)
     return fig
 
 
@@ -722,19 +946,32 @@ def _guardar(fig, ruta):
     return ruta
 
 
-def _logo(fig, team, cx, cy, px, alpha=1.0):
-    """Dibuja el escudo centrado en (cx, cy) — coordenadas de figura — con tamaño óptico px."""
+def _logo(fig, team, x, y, px):
+    """
+    Escudo centrado en (x, y) px del diseño con tamaño óptico px. Si no hay
+    escudo: círculo #3E383D con borde #554E54 y las iniciales en #C2BBC0.
+    """
+    px = _px(px)
     img = obtener_logo(team, px)
-    alto_px, ancho_px = (px, px) if img is None else img.shape[:2]
-    w, h = ancho_px / (W * DPI), alto_px / (H * DPI)
-    ax = fig.add_axes([cx - w / 2, cy - h / 2, w, h])
+    fig_w, fig_h = fig.get_size_inches() * fig.dpi
+    fx, fy = _X(x), _Y(y)
+    if img is None:
+        _capa(fig).add_patch(Circle((fx * fig_w, fy * fig_h), px / 2, facecolor=PANEL,
+                                    edgecolor=LINEA, lw=_lw(2)))
+        fig.text(fx, fy, team, ha="center", va="center", fontsize=px * 0.3 * 72 / DPI,
+                 fontweight="bold", color=TEXTO2)
+        return None
+    alto_px, ancho_px = img.shape[:2]
+    w, h = ancho_px / fig_w, alto_px / fig_h
+    ax = fig.add_axes([fx - w / 2, fy - h / 2, w, h])
     ax.axis("off")
-    if img is None:        # sin escudo: la abreviatura
-        ax.text(0.5, 0.5, team, ha="center", va="center", fontsize=px * 0.28,
-                fontweight="bold", alpha=alpha, transform=ax.transAxes)
-    else:
-        ax.imshow(img, alpha=alpha)
+    ax.imshow(img)
     return ax
+
+
+def _ejes(fig, x0, y0, x1, y1):
+    """Ejes de matplotlib que ocupan de (x0, y0) a (x1, y1) px del diseño."""
+    return fig.add_axes([_X(x0), _Y(y1), _X(x1) - _X(x0), _Y(y0) - _Y(y1)], facecolor="none")
 
 
 def _fig_y(ax, y):
@@ -744,9 +981,26 @@ def _fig_y(ax, y):
     return pos.y0 + pos.height * (y - y0) / (y1 - y0)
 
 
+def _dy(ax, v):
+    """Coordenada y de datos -> y en px del diseño (desde arriba)."""
+    f = _fig_y(ax, v)
+    return (1 - ((f - _FMT.dest0) / _FMT.k + _FMT.y0)) * ALTO_PX
+
+
 def _sin_bordes(ax, dejar=()):
     for lado, s in ax.spines.items():
         s.set_visible(lado in dejar)
+
+
+def _eje_x(ax, etiquetas, px=21, color=TEXTO2, **kw):
+    """Etiquetas del eje x sin marcas, con línea base fina."""
+    ax.set_xticks(np.arange(len(etiquetas)))
+    ax.set_xticklabels(etiquetas, fontsize=_ft(px), color=color, **kw)
+    ax.tick_params(axis="x", length=0, pad=_fs(8))
+    ax.set_yticks([])
+    _sin_bordes(ax, dejar=("bottom",))
+    ax.spines["bottom"].set_color(LINEA)
+    ax.spines["bottom"].set_linewidth(_lw(2))
 
 
 def _zona_corta(zona):
@@ -754,265 +1008,415 @@ def _zona_corta(zona):
 
 
 def _fmt_dia(ts):
+    """'jue 5 nov'"""
     return f"{DIAS[ts.weekday()]} {ts.day} {MESES[ts.month - 1]}"
 
 
-def _fmt_fecha_hora(ts, zona):
+def _fmt_fecha_hora(ts, zona, confirmada=True):
+    """'jue 5 nov · 19:15 · hora CDMX' — sin hora si no está confirmada."""
     if pd.isna(ts):
-        return ""
-    return f"{_fmt_dia(ts)} · {ts:%H:%M} h ({_zona_corta(zona)})"
+        return "Fecha por confirmar"
+    if not confirmada:
+        return f"{_fmt_dia(ts)} · hora por confirmar"
+    return f"{_fmt_dia(ts)} · {ts:%H:%M} · hora {_zona_corta(zona)}"
+
+
+def _miles(v):
+    """1578.3 -> '1,578'"""
+    return f"{v:,.0f}"
+
+
+def _separar(ys, gap):
+    """Reparte posiciones (1-D) para que queden al menos `gap` entre sí, sin perder el orden."""
+    orden = np.argsort(ys)[::-1]                 # de mayor a menor
+    out = np.asarray(ys, dtype=float).copy()
+    for a, b in zip(orden[:-1], orden[1:]):
+        out[b] = min(out[b], out[a] - gap)
+    exceso = out.min() - min(ys)                 # si se fue muy lejos, centrar el bloque
+    if exceso < 0:
+        out -= exceso / 2
+    return out
+
+
+def _separar_px(ys_px, gap):
+    """_separar para px del diseño (y crece hacia abajo)."""
+    return -_separar(-np.asarray(ys_px, dtype=float), gap)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 6 · Gráficas
 # ══════════════════════════════════════════════════════════════════════════════
-def graf_aciertos_semana(tabla, threshold, ruta):
-    """Barras = % de aciertos de cada semana · línea = % acumulado.
-    Los conteos van como récord de la NFL: aciertos-fallos(-empates)."""
+def graf_aciertos_semana(tabla, threshold, ruta, cambio=None):
+    """Récord acumulado en píldora · barras = % de aciertos de cada semana ·
+    línea = % acumulado. Los conteos van como récord de la NFL.
+    cambio: semana desde la que se publica el Modelo 2. Las semanas anteriores
+    (Modelo 1) van en gris y una línea vertical marca la liberación del Modelo 2."""
     t = tabla.reset_index(drop=True)
     u = t.iloc[-1]
-    fig = _lienzo("La prueba", "¿Cómo va el modelo?")
+    fig = _lienzo("La prueba", "¿Cómo va el modelo?",
+                  f"{u.acum_pct_aciertos:.0%} de aciertos en {int(u.acum_picks)} partidos "
+                  f"· semanas 1–{int(u.semana)}", tema="Desempeño del modelo")
 
-    fig.text(0.5, 0.715, record_af(u.acum_aciertos, u.acum_picks, u.acum_empates), ha="center",
-             va="center", fontsize=96, fontweight="bold", color=ACENTO)
-    etiqueta = ("RÉCORD DEL MODELO (ACIERTOS–FALLOS–EMPATES)" if u.acum_empates
-                else "RÉCORD DEL MODELO (ACIERTOS–FALLOS)")
-    fig.text(0.5, 0.655, etiqueta, ha="center", fontsize=18)
-    fig.text(0.5, 0.632, f"{u.acum_pct_aciertos:.0%} de aciertos en {int(u.acum_picks)} partidos",
-             ha="center", fontsize=15, color=GRIS)
+    leyenda = ("RÉCORD DEL MODELO · ACIERTOS–FALLOS–EMPATES" if u.acum_empates
+               else "RÉCORD DEL MODELO · ACIERTOS–FALLOS")
+    _pildora(fig, 540, 532, record_af(u.acum_aciertos, u.acum_picks, u.acum_empates), leyenda)
     if threshold > 0.5:
-        fig.text(0.5, 0.612, f"Solo cuentan los picks con probabilidad > {threshold:.0%}",
-                 ha="center", fontsize=13, color=GRIS)
+        _texto(fig, 540, 712, f"Solo cuentan los partidos con probabilidad > {threshold:.0%}",
+               15, TENUE, ha="center")
 
-    ax = fig.add_axes([0.10, 0.34, 0.80, 0.25], facecolor="none")
+    _seccion(fig, 800, "#", "Semana a semana", "¿Le gana a la moneda al aire?")
+    ax = _ejes(fig, 108, 880, 972, 1280)
     n = len(t)
     x = np.arange(n)
     pct = t["pct_aciertos"].fillna(0).to_numpy()
-    ax.bar(x, pct, width=0.62, color=FRIO, zorder=2)
+    # semana con 50 % o más: Blueberry · semana perdedora: Cherry Tomato
+    semanas = t["semana"].to_numpy()
+    m1 = (semanas < cambio) if cambio is not None else np.zeros(n, bool)
+    ax.bar(x, pct, width=0.62, zorder=2,
+           color=[ROJO if p < 0.5 else (NEUTRO if es_m1 else AZUL) for p, es_m1 in zip(pct, m1)])
 
-    # récord de la semana (aciertos-fallos) dentro de cada barra, en la base
     vertical = n > 9
-    fs = 17 if n <= 6 else (15 if n <= 9 else 12)
+    fs = 24 if n <= 6 else (21 if n <= 9 else 18)
     for xi, r in zip(x, t.itertuples()):
         ax.text(xi, 0.03, record_af(r.aciertos, r.picks, r.empates), ha="center", va="bottom",
-                fontsize=fs, fontweight="bold", rotation=90 if vertical else 0, zorder=5)
+                fontsize=_ft(fs), fontweight="bold", color=BLANCO,
+                rotation=90 if vertical else 0, zorder=5)
 
     acum = t["acum_pct_aciertos"].to_numpy()
-    ax.plot(x, acum, color=ACENTO, lw=4, marker="o", ms=11, zorder=6,
-            markeredgecolor=FONDO, markeredgewidth=2)
-    ax.annotate(f"{acum[-1]:.0%}", (x[-1], acum[-1]), xytext=(0, 16),
-                textcoords="offset points", ha="center", fontsize=20,
-                fontweight="bold", color=ACENTO, zorder=7)
+    ax.plot(x, acum, color=TEXTO, lw=_lw(5), marker="o", ms=_fs(12), zorder=6,
+            markeredgecolor=FONDO, markeredgewidth=_fs(2.5))
+    ax.annotate(f"{acum[-1]:.0%}", (x[-1], acum[-1]), xytext=(0, _fs(14)),
+                textcoords="offset points", ha="center", fontsize=_ft(32),
+                fontweight="bold", color=TEXTO, zorder=7)
 
     pad = max(0.0, (6 - n) / 2)
     ax.set_xlim(-0.6 - pad, n - 0.4 + pad)
     ax.set_ylim(0, min(1.15, max(0.8, float(np.nanmax(np.r_[pct, acum])) + 0.2)))
-    ax.axhline(0.5, color=TINTA, lw=1.2, ls="--", alpha=0.6, zorder=3)
-    fig.text(0.095, _fig_y(ax, 0.5), "50%", ha="right", va="center", fontsize=13, color=GRIS)
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"S{int(w)}" for w in t["semana"]], fontsize=16 if n <= 10 else 12)
-    ax.tick_params(axis="x", length=0, pad=8)
-    ax.set_yticks([])
-    _sin_bordes(ax, dejar=("bottom",))
-    ax.spines["bottom"].set_color(GRIS)
+    ax.axhline(0.5, color=TENUE, lw=_lw(2), ls=(0, (4, 3)), zorder=3)
+    fig.text(_X(100), _fig_y(ax, 0.5), "50%", ha="right", va="center", fontsize=_ft(15),
+             color=TENUE)
+    hito = cambio is not None and m1.any() and not m1.all()
+    if hito:
+        # Hito: liberación del Modelo 2 (entre la última semana del Modelo 1 y la primera del 2)
+        xh = int(m1.sum()) - 0.5
+        ytop = ax.get_ylim()[1]
+        ax.plot([xh, xh], [0, ytop * 0.97], color=AZUL_TXT, lw=_lw(3), zorder=4)
+        ax.plot([xh], [ytop * 0.97], marker="o", ms=_fs(11), color=AZUL_TXT, zorder=8)
+        ha = "right" if xh > n - 2.5 else "left"
+        dx = -_fs(8) if ha == "right" else _fs(8)
+        ax.annotate(f"S{cambio}: llega el Modelo 2", (xh, ytop * 0.97), xytext=(dx, 0),
+                    textcoords="offset points", ha=ha, va="center", fontsize=_ft(17),
+                    fontweight="bold", color=AZUL_TXT, zorder=8)
+        ax.annotate("Elo + lesiones y ausencias", (xh, ytop * 0.97), xytext=(dx, -_fs(18)),
+                    textcoords="offset points", ha=ha, va="center", fontsize=_ft(14),
+                    color=TEXTO2, zorder=8)
+    _eje_x(ax, [f"S{int(w)}" for w in t["semana"]], px=21 if n <= 10 else 16)
 
-    fig.text(0.49, 0.285, "■ récord de la semana", ha="right", fontsize=15, color=FRIO_TEXTO)
-    fig.text(0.53, 0.285, "● % acumulado", ha="left", fontsize=15, color=ACENTO)
-    fig.text(0.5, 0.262, "- - -  50 % = moneda al aire", ha="center", fontsize=13, color=GRIS)
+    if hito:
+        # leyenda centrada con el ancho real de cada texto (las fuentes se escalan por formato)
+        items = [("■ Modelo 1 (Elo)", TEXTO2), ("■ Modelo 2 (Elo + ausencias)", AZUL_TXT),
+                 ("● % acumulado", TEXTO)]
+        tam = max(19 * _FMT.escala, FUENTE_MIN)
+        anchos = [_ancho_texto(s, tam, bold=False) for s, _ in items]
+        sep = 36 * _FMT.escala
+        x = 540 - (sum(anchos) + sep * (len(items) - 1)) / 2
+        for (s, col), a in zip(items, anchos):
+            _texto(fig, x, 1372, s, 19, col)
+            x += a + sep
+    else:
+        _texto(fig, 520, 1372, "■ récord de la semana", 21, AZUL_TXT, ha="right")
+        _texto(fig, 560, 1372, "● % acumulado", 21, TEXTO)
+    _texto(fig, 540, 1410, "- - -  50% = moneda al aire", 15, TENUE, ha="center")
 
     comp = ["Siempre el local: "
             f"{record_af(u.acum_siempre_local_aciertos, u.acum_picks, u.acum_empates)}"]
     if MOSTRAR_VEGAS and u.acum_vegas_partidos:
         comp.append("Favorito de Las Vegas: "
                     f"{record_af(u.acum_vegas_aciertos, u.acum_vegas_partidos, u.acum_vegas_empates)}")
-    fig.text(0.5, 0.228, "   ·   ".join(comp), ha="center", fontsize=14, color=GRIS)
+    _texto(fig, 540, 1470, "   ·   ".join(comp), 21, TEXTO2, ha="center")
     return _guardar(fig, ruta)
 
 
-def graf_suben_caen(cambios, contexto, etiqueta, titulo, ruta, n=TOP_N):
-    """Top n que más ELO ganan y top n que más pierden, con escudo."""
-    df = cambios.dropna().sort_values()
-    sel = pd.concat([df.head(n), df.tail(n)])
-    fig = _lienzo(etiqueta, titulo)
-    ax = fig.add_axes([0.25, 0.26, 0.67, 0.44], facecolor="none")
-    y = np.arange(len(sel))
-    colores = [ACENTO if c > 0 else (ROJO if c < 0 else GRIS) for c in sel]
-    ax.barh(y, sel.to_numpy(), color=colores, height=0.65)
-    ax.axvline(0, color=TINTA, lw=1.5)
-    lim = max(float(sel.abs().max()), 1.0) * 1.45
-    ax.set_xlim(-lim, lim)
-    ax.set_ylim(-0.6, len(sel) - 0.4)
-    for yi, (team, c) in zip(y, sel.items()):
-        der = c >= 0
-        ax.text(c + (lim * 0.03 if der else -lim * 0.03), yi, f"{c:+.0f}", va="center",
-                ha="left" if der else "right", fontsize=18, fontweight="bold")
-        if contexto:   # resultado/récord del lado contrario a la barra
-            ax.text(-lim * 0.03 if der else lim * 0.03, yi, contexto.get(team, "Descansó"),
-                    va="center", ha="right" if der else "left", fontsize=12, color=GRIS)
-        fy = _fig_y(ax, yi)
-        _logo(fig, team, 0.085, fy, 58)
-        fig.text(0.14, fy, team, va="center", fontsize=20)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    _sin_bordes(ax)
+def graf_calibracion(calib, ruta, alta=0.70, nota=None):
+    """Barras = % real que ganó el favorito en cada rango de confianza ·
+    raya = lo que el modelo prometió (prob. media). Arriba, confiar vs no confiar.
+    nota: (titular, detalle) opcional abajo de la leyenda, p. ej. para avisar
+    de un cambio de modelo."""
+    c = calib[calib["partidos"] > 0].reset_index(drop=True)
+    fig = _lienzo("La prueba", "¿Cuándo hay que creerle?",
+                  "Si el modelo dice 70%, ¿el favorito gana 70% de las veces?",
+                  tema="Calibración del modelo")
+
+    def _resumen(filas):
+        n, a, e = filas["partidos"].sum(), filas["aciertos"].sum(), filas["empates"].sum()
+        return (a + 0.5 * e) / n if n else np.nan, record_af(a, n, e)
+
+    lim = [float(r.split("–")[0].rstrip("%+")) / 100 for r in c["rango"].astype(str)]
+    conf = c[[v >= alta for v in lim]]
+    dudas = c.iloc[:1]
+    bloques = ((290, conf, f"≥ {alta:.0%}", AZUL_TXT),
+               (790, dudas, str(dudas["rango"].iloc[0]) if len(dudas) else "", TEXTO))
+    for cx, filas, rango, color in bloques:
+        pct, rec = _resumen(filas)
+        if np.isnan(pct):
+            continue
+        _texto(fig, cx, 590, f"{pct:.0%}", 80, color if pct >= 0.5 else ROJO_TXT, bold=True,
+               ha="center")
+        _texto(fig, cx, 672, f"ACIERTA CUANDO DA\n{rango}", 16, TENUE, bold=True, ha="center",
+               linespacing=1.5)
+        _texto(fig, cx, 728, rec, 21, TEXTO2, ha="center")
+    _vline(fig, 540, 548, 740)
+
+    _seccion(fig, 808, "%", "Por nivel de confianza", "¿Cumple lo que promete?")
+    ax = _ejes(fig, 108, 890, 972, 1290)
+    n = len(c)
+    x = np.arange(n)
+    real = c["pct_real"].to_numpy()
+    prom = c["prob_media"].to_numpy()
+    colores = [ROJO if r < 0.5 else (AZUL if r >= p - 0.02 else NEUTRO)
+               for r, p in zip(real, prom)]
+    ax.bar(x, real, width=0.62, color=colores, zorder=2)
+    for xi, r, p, rec in zip(x, real, prom, c["record"]):
+        ax.text(xi, 0.03, rec, ha="center", va="bottom", fontsize=_ft(21),
+                fontweight="bold", color=BLANCO, zorder=5)
+        ax.text(xi, max(r, p) + 0.03, f"{r:.0%}", ha="center", va="bottom", fontsize=_ft(28),
+                fontweight="bold", color=ROJO_TXT if r < 0.5 else TEXTO, zorder=7)
+        ax.plot([xi - 0.36, xi + 0.36], [p, p], color=TEXTO, lw=_lw(6),
+                solid_capstyle="butt", zorder=6)
+
+    ax.set_xlim(-0.6, n - 0.4)
+    ax.set_ylim(0, 1.18)
+    ax.axhline(0.5, color=TENUE, lw=_lw(2), ls=(0, (4, 3)), zorder=3)
+    fig.text(_X(100), _fig_y(ax, 0.5), "50%", ha="right", va="center", fontsize=_ft(15),
+             color=TENUE)
+    _eje_x(ax, [f"{r}\n{int(p)} partidos" for r, p in zip(c["rango"], c["partidos"])],
+           linespacing=1.5)
+
+    _texto(fig, 520, 1418, "■ lo que acertó", 21, AZUL_TXT, ha="right")
+    _texto(fig, 560, 1418, "▬ lo que prometió", 21, TEXTO)
+    _texto(fig, 540, 1456, "- - -  50% = moneda al aire", 15, TENUE, ha="center")
+    if nota:
+        titular, detalle = nota
+        _hline(fig, MARGEN, ANCHO_PX - MARGEN, 1502)
+        _texto(fig, 540, 1530, titular, 22, AZUL_TXT, bold=True, ha="center", va="top")
+        _texto(fig, 540, 1572, detalle, 18, TEXTO2, ha="center", va="top")
     return _guardar(fig, ruta)
 
 
-def graf_top(elo_actual, ruta, n=TOP_N):
-    """Ranking del modelo — el diseño de referencia, ahora con escudo."""
-    df = elo_actual.sort_values(ascending=False).head(n)[::-1]
-    fig = _lienzo("Ranking del modelo", f"Top {n} según el Elo")
-    ax = fig.add_axes([0.24, 0.30, 0.60, 0.38], facecolor="none")
-    y = np.arange(n)
+def nota_cambio_modelo(semana, cambio):
+    """Texto de la gráfica de calibración del historial publicado (Modelo 1 -> 2)."""
+    titular = ("Nuevo: el modelo ahora toma en cuenta lesiones y ausencias" if semana <= cambio + 1
+               else "El modelo toma en cuenta lesiones y ausencias")
+    if semana <= cambio:
+        detalle = f"Semanas 1–{cambio - 1}: modelo Elo · desde la semana {cambio}: Elo + ausencias"
+    elif semana == cambio + 1:
+        detalle = f"Semanas 1–{cambio - 1}: modelo Elo · semana {cambio}: Elo + ausencias"
+    else:
+        detalle = (f"Semanas 1–{cambio - 1}: modelo Elo · semanas {cambio}–{semana - 1}: "
+                   "Elo + ausencias")
+    return titular, detalle
+
+
+def graf_suben_caen(cambios, contexto, etiqueta, titulo, subtitulo, ruta, n=TOP_N):
+    """Top n que más Elo ganan (Blueberry) y top n que más pierden (Cherry Tomato)."""
+    df = cambios.dropna().sort_values(ascending=False)
+    grupos = (("SUBEN", df.head(n)), ("CAEN", df.tail(n)))
+    fig = _lienzo(etiqueta, titulo, subtitulo, tema="Cambios de Elo")
+
+    lim = max(float(df.abs().max()), 1.0) * 1.6
+    x0b, x1b = 330, ANCHO_PX - MARGEN
+    cero, media = (x0b + x1b) / 2, (x1b - x0b) / 2
+    FILA, ALTO = 82, 46
+    y = 540
+    for i, (nombre, sel) in enumerate(grupos):
+        if i:
+            _hline(fig, MARGEN, ANCHO_PX - MARGEN, y - 22)
+        _texto(fig, MARGEN, y, nombre, 16, TENUE, bold=True)
+        y += 22
+        _vline(fig, cero, y + 6, y + FILA * len(sel) - 6, LINEA, 2)
+        for team, c in sel.items():
+            yc = y + FILA / 2
+            _logo(fig, team, 100, yc, 64)
+            _texto(fig, 162, yc, team, 28)
+            w = media * abs(c) / lim
+            der = c >= 0
+            color = AZUL if c > 0 else (ROJO if c < 0 else NEUTRO)
+            _caja(fig, cero if der else cero - w, yc - ALTO / 2, cero + w if der else cero,
+                  yc + ALTO / 2, color)
+            _texto(fig, cero + (w + 12 if der else -(w + 12)), yc, f"{c:+.0f}", 28, TEXTO,
+                   bold=True, ha="left" if der else "right")
+            if contexto:   # resultado/récord del lado contrario a la barra
+                _texto(fig, cero + (-14 if der else 14), yc, contexto.get(team, "Descansó"), 21,
+                       TEXTO2, ha="right" if der else "left")
+            y += FILA
+        y += 44
+    return _guardar(fig, ruta)
+
+
+def graf_top(elo_actual, ruta, n=RANKING_N, elo_previo=None, semana=None):
+    """Ranking del modelo en tabla: posición (y cambio vs la semana pasada),
+    escudo, barra de Elo y valor. La fila líder va resaltada."""
+    df = elo_actual.sort_values(ascending=False).head(n)
+    rank_now = elo_actual.rank(ascending=False, method="min")
+    rank_prev = (elo_previo.rank(ascending=False, method="min")
+                 if elo_previo is not None else None)
+    fig = _lienzo("Ranking del modelo", f"Top {n} según el Elo",
+                  f"Elo al arrancar la semana {semana}" if semana else None, tema="Ranking Elo")
+
+    FILA = 56
+    alto = 40 + n * FILA + 70
+    top = Y_LINEA + max(40, (1600 - Y_LINEA - alto) / 2)
+    der = ANCHO_PX - MARGEN
+    _texto(fig, 100, top + 12, "#", 16, TENUE, bold=True, ha="center")
+    _texto(fig, 182, top + 12, "EQUIPO", 16, TENUE, bold=True)
+    _texto(fig, der, top + 12, "ELO", 16, TENUE, bold=True, ha="right")
+    y = top + 36
+    _hline(fig, MARGEN, der, y)
+
     base = 1400
-    ax.barh(y, df.to_numpy() - base, left=base, color=[FRIO] * (n - 1) + [ACENTO], height=0.6)
-    for yi, v in zip(y, df.to_numpy()):
-        ax.text(v + 5, yi, f"{v:.0f}", va="center", fontsize=22, fontweight="bold")
-    ax.set_xlim(base, df.max() + 60)
-    ax.set_ylim(-0.53, n - 0.47)
-    for yi, team in zip(y, df.index):
-        fy = _fig_y(ax, yi)
-        _logo(fig, team, 0.085, fy, 64)
-        fig.text(0.145, fy, team, va="center", fontsize=24)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    _sin_bordes(ax)
-    fig.text(0.5, 0.26, "Promedio de la liga ≈ 1500", ha="center", fontsize=16, color=GRIS)
+    tope = max(float(df.max()), base + 1)
+    bx0, bx1 = 340, 880
+    for i, (team, v) in enumerate(df.items()):
+        lider = i == 0
+        yc = y + FILA / 2
+        if lider:
+            _caja(fig, MARGEN, y + 1, der, y + FILA, PANEL)
+        pos = int(rank_now[team])
+        _texto(fig, 100, yc, f"{pos}", 28, ROJO_TXT if lider else TEXTO2, bold=True, ha="center")
+        if rank_prev is not None:
+            d = int(rank_prev[team]) - pos
+            s, col = ((f"▲{d}", AZUL_TXT) if d > 0 else
+                      (f"▼{-d}", ROJO_TXT) if d < 0 else ("=", TENUE))
+            _texto(fig, 100 + _e(24), yc, s, 11, col, bold=True)
+        _logo(fig, team, 200, yc, 36)
+        _texto(fig, 236, yc, team, 28, TEXTO, bold=lider)
+        _caja(fig, bx0, yc - 12, bx0 + (bx1 - bx0) * max(v - base, 0) / (tope - base), yc + 12,
+              AZUL)
+        _texto(fig, der, yc, _miles(v), 28, ROJO_TXT if lider else TEXTO, bold=True, ha="right")
+        y += FILA
+        _hline(fig, MARGEN, der, y)
+
+    nota = "Promedio de la liga ≈ 1,500"
+    if rank_prev is not None:
+        nota += " · ▲▼ lugares que subió o bajó vs la semana pasada"
+    _texto(fig, 540, y + 44, nota, 15, TENUE, ha="center")
     return _guardar(fig, ruta)
-
-
-def _separar(ys, gap):
-    """Reparte posiciones (1-D) para que queden al menos `gap` entre sí, sin perder el orden."""
-    orden = np.argsort(ys)[::-1]                 # de arriba hacia abajo
-    out = np.asarray(ys, dtype=float).copy()
-    for a, b in zip(orden[:-1], orden[1:]):
-        out[b] = min(out[b], out[a] - gap)
-    exceso = out.min() - min(ys)                 # si se fue muy abajo, centrar el bloque
-    if exceso < 0:
-        out -= exceso / 2
-    return out
 
 
 def graf_evolucion_elo(elo_tab, semana, ruta, n=TOP_N):
     """Elo de los 32 equipos semana a semana desde la pretemporada.
-    Todos en gris; el top n actual y el que más cae, en color con su escudo."""
+    Todos en gris; el top n en Blueberry y el que más cae en Cherry Tomato."""
     cols = [c for c in elo_tab.columns if c <= semana]
     t = elo_tab[cols].dropna()
     actual, inicio = t[cols[-1]], t[cols[0]]
-    destacados = list(actual.sort_values(ascending=False).index[:n])
+    top = list(actual.sort_values(ascending=False).index[:n])
     cae = (actual - inicio).idxmin()
-    if cae not in destacados:
-        destacados.append(cae)
-    colores = _colores_equipos(destacados)
+    destacados = top + ([cae] if cae not in top else [])
 
-    fig = _lienzo("Evolución del Elo", "Así se mueve la liga")
-    fig.text(0.5, 0.762, f"De la pretemporada a la semana {semana - 1}",
-             ha="center", fontsize=15, color=GRIS)
-    ax = fig.add_axes([0.13, 0.27, 0.64, 0.45], facecolor="none")
+    fig = _lienzo("Evolución del Elo", "Así se mueve la liga",
+                  f"De la pretemporada a la semana {semana - 1}", tema="Evolución del Elo")
+    ax = _ejes(fig, 160, 560, 800, 1440)
     x = np.arange(len(cols))
     for team, fila in t.iterrows():
         if team not in destacados:
-            ax.plot(x, fila.to_numpy(), color=GRIS, lw=1.5, alpha=0.3, zorder=2)
+            ax.plot(x, fila.to_numpy(), color=LINEA, lw=_lw(2), zorder=2)
     for z, team in enumerate(destacados[::-1]):    # el #1 queda encima
+        color = ROJO if team == cae and team not in top else AZUL
         y = t.loc[team].to_numpy()
-        ax.plot(x, y, color=colores[team], lw=4, zorder=4 + z, solid_capstyle="round")
-        ax.plot(x[-1], y[-1], "o", ms=11, color=colores[team], zorder=4 + z,
-                markeredgecolor=FONDO, markeredgewidth=2)
+        ax.plot(x, y, color=color, lw=_lw(5), zorder=4 + z, solid_capstyle="round")
+        ax.plot(x[-1], y[-1], "o", ms=_fs(11), color=color, zorder=4 + z,
+                markeredgecolor=FONDO, markeredgewidth=_fs(2))
 
     lo, hi = float(t.min().min()), float(t.max().max())
     pad = (hi - lo) * 0.06
     ax.set_ylim(lo - pad, hi + pad)
     ax.set_xlim(-0.25, len(cols) - 0.75)
-    ax.axhline(1500, color=TINTA, lw=1.2, ls="--", alpha=0.6, zorder=3)
-    ax.text(0.02, 1500, "promedio ≈ 1500", transform=ax.get_yaxis_transform(),
-            va="center", fontsize=12, color=GRIS, zorder=10,
-            bbox=dict(boxstyle="round,pad=0.25", facecolor=FONDO, edgecolor="none"))
+    ax.axhline(1500, color=TENUE, lw=_lw(2), ls=(0, (4, 3)), zorder=3)
+    ax.text(0.02, 1500, "promedio ≈ 1,500", transform=ax.get_yaxis_transform(),
+            va="center", fontsize=_ft(15), color=TENUE, zorder=10,
+            bbox=dict(boxstyle="square,pad=0.3", facecolor=FONDO, edgecolor="none"))
 
-    ax.set_xticks(x)
-    ax.set_xticklabels(["Inicio"] + [f"S{c - 1}" for c in cols[1:]],
-                       fontsize=15 if len(cols) <= 10 else 11)
-    ax.tick_params(axis="x", length=0, pad=8)
+    _eje_x(ax, ["Pre"] + [f"S{c - 1}" for c in cols[1:]], px=21 if len(cols) <= 10 else 15)
     paso = 50 if hi - lo < 300 else 100
     ax.set_yticks(np.arange(np.ceil((lo - pad) / paso) * paso, hi + pad, paso))
-    ax.tick_params(axis="y", length=0, labelsize=13, labelcolor=GRIS)
-    _sin_bordes(ax, dejar=("bottom",))
-    ax.spines["bottom"].set_color(GRIS)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: _miles(v)))
+    ax.tick_params(axis="y", length=0, labelsize=_ft(15), labelcolor=TENUE)
 
     # Escudo + Elo al final de cada línea destacada, sin encimarse
-    fy = [_fig_y(ax, actual[team]) for team in destacados]
-    for team, y in zip(destacados, _separar(fy, 0.034)):
-        _logo(fig, team, 0.815, y, 46)
-        fig.text(0.85, y, f"{actual[team]:.0f}", va="center", fontsize=16,
-                 fontweight="bold", color=colores[team])
+    ys = _separar_px([_dy(ax, actual[team]) for team in destacados], 46)
+    for i, (team, y) in enumerate(zip(destacados, ys)):
+        _logo(fig, team, 842, y, 36)
+        lider, es_cae = i == 0, team == cae and team not in top
+        _texto(fig, 872, y, _miles(actual[team]), 21,
+               ROJO_TXT if es_cae else (TEXTO if lider else TEXTO2), bold=lider or es_cae)
 
-    fig.text(0.5, 0.215, f"En color: top {n} y el que más cae · en gris: el resto",
-             ha="center", fontsize=13, color=GRIS)
+    _texto(fig, 540, 1512, f"En azul: top {n} · en rojo: el que más cae · en gris: el resto",
+           15, TENUE, ha="center")
     return _guardar(fig, ruta)
 
 
 DIVISIONES = {"East": "Este", "North": "Norte", "South": "Sur", "West": "Oeste"}
+# color de línea / de texto según el lugar en la división (1.º → 4.º)
+COLORES_DIVISION = [(AZUL, AZUL_TXT), (TEXTO, TEXTO), (TENUE, TEXTO2), (ROJO, ROJO_TXT)]
 
 
 def graf_evolucion_divisiones(elo_tab, semana, ruta):
     """Elo semana a semana en 8 paneles (AFC a la izquierda, NFC a la derecha),
-    los 4 equipos de cada división en color y con la misma escala en todos."""
+    los 4 equipos de cada división por lugar (1.º Blueberry → 4.º Cherry) y
+    con la misma escala en todos."""
     cols = [c for c in elo_tab.columns if c <= semana]
     t = elo_tab[cols].dropna()
     division = _load_logo_urls()["division"]
     lo, hi = float(t.min().min()), float(t.max().max())
     pad = (hi - lo) * 0.08
     x = np.arange(len(cols))
+    etiquetas = ["Pre"] + [f"S{c - 1}" for c in cols[1:]]
+    if len(cols) > 10:   # con muchas semanas, una etiqueta sí y otra no
+        etiquetas = [e if i % 2 == 0 else "" for i, e in enumerate(etiquetas)]
 
-    fig = _lienzo("Evolución del Elo", "Así va cada división")
-    fig.text(0.5, 0.762, f"De la pretemporada a la semana {semana - 1}",
-             ha="center", fontsize=15, color=GRIS)
-    top, alto_fila = 0.735, 0.12
+    fig = _lienzo("Evolución del Elo", "Así va cada división",
+                  f"De la pretemporada a la semana {semana - 1}", tema="Evolución del Elo")
+    FILA, top = 250, 524
     for col, conf in enumerate(("AFC", "NFC")):
-        x0 = 0.07 + 0.47 * col
+        x0 = MARGEN + 488 * col
         for fila, (div_en, div_es) in enumerate(DIVISIONES.items()):
-            y_fila = top - fila * alto_fila
-            fig.text(x0, y_fila, f"{conf} {div_es}".upper(), va="top", fontsize=13,
-                     fontweight="bold", color=ACENTO)
+            ry = top + fila * FILA
+            _texto(fig, x0, ry, f"{conf} {div_es}".upper(), 16, TEXTO2, bold=True, va="top")
             equipos = [e for e in t.index if division.get(e) == f"{conf} {div_en}"]
             equipos.sort(key=lambda e: -t.loc[e, cols[-1]])
-            colores = _colores_equipos(equipos)
 
-            ax = fig.add_axes([x0, y_fila - alto_fila + 0.012, 0.30, alto_fila - 0.035],
-                              facecolor="none")
-            ax.axhline(1500, color=TINTA, lw=1, ls="--", alpha=0.5, zorder=1)
-            for z, e in enumerate(equipos[::-1]):
+            ax = _ejes(fig, x0, ry + 30, x0 + 330, ry + FILA - 44)
+            ax.set_facecolor(PANEL)
+            ax.axhline(1500, color=NEUTRO, lw=_lw(1.5), ls=(0, (4, 3)), zorder=1)
+            for z, (e, (c_linea, _)) in reversed(list(enumerate(zip(equipos, COLORES_DIVISION)))):
                 y = t.loc[e].to_numpy()
-                ax.plot(x, y, color=colores[e], lw=3, zorder=2 + z, solid_capstyle="round")
-                ax.plot(x[-1], y[-1], "o", ms=7, color=colores[e], zorder=2 + z,
-                        markeredgecolor=FONDO, markeredgewidth=1.5)
+                ax.plot(x, y, color=c_linea, lw=_lw(4), zorder=2 + (4 - z),
+                        solid_capstyle="round")
+                ax.plot(x[-1], y[-1], "o", ms=_fs(7), color=c_linea, zorder=2 + (4 - z),
+                        markeredgecolor=PANEL, markeredgewidth=_fs(1.5))
             ax.set_ylim(lo - pad, hi + pad)
-            ax.set_xlim(-0.2, len(cols) - 0.8)
-            ax.set_yticks([])
-            ax.set_xticks(x)
+            ax.set_xlim(-0.4, len(cols) - 0.6)
             ultima = fila == len(DIVISIONES) - 1
-            ax.set_xticklabels(["Inicio"] + [f"S{c - 1}" for c in cols[1:]] if ultima else [],
-                               fontsize=11 if len(cols) <= 8 else 8)
-            ax.tick_params(axis="x", length=0, pad=4)
-            _sin_bordes(ax, dejar=("bottom",))
-            ax.spines["bottom"].set_color(CUADRICULA)
+            _eje_x(ax, etiquetas if ultima else [""] * len(cols), px=15, color=TENUE)
+            _sin_bordes(ax)
 
-            fy = [_fig_y(ax, t.loc[e, cols[-1]]) for e in equipos]
-            for e, y in zip(equipos, _separar(fy, 0.0175)):
-                _logo(fig, e, x0 + 0.325, y, 30)
-                fig.text(x0 + 0.35, y, f"{t.loc[e, cols[-1]]:.0f}", va="center",
-                         fontsize=11, fontweight="bold", color=colores[e])
+            ys = _separar_px([_dy(ax, t.loc[e, cols[-1]]) for e in equipos], 34)
+            for e, y, (_, c_txt) in zip(equipos, ys, COLORES_DIVISION):
+                _logo(fig, e, x0 + 354, y, 32)
+                _texto(fig, x0 + 378, y, _miles(t.loc[e, cols[-1]]), 20, c_txt, bold=True)
 
-    fig.text(0.5, 0.215, "Misma escala en todas las divisiones · - - - 1500 = promedio",
-             ha="center", fontsize=13, color=GRIS)
+    _texto(fig, 540, 1572, "Misma escala en todas las divisiones · - - -  1,500 = promedio",
+           15, TENUE, ha="center")
     return _guardar(fig, ruta)
 
 
 def graf_picks(week_games, semana, threshold, ruta, zona=ZONA_HORARIA):
-    """Picks en orden de juego (jueves → lunes), escudos en lugar de nombres."""
+    """Pronósticos en orden de juego (jueves → lunes): escudos y barra de probabilidad.
+    La fila del favorito más claro va resaltada."""
     g = week_games.sort_values(["kickoff", "game_id"], na_position="last")
-    fig = _lienzo(f"Semana {semana}", "Mis pronósticos")
-    fig.text(0.5, 0.762, f"En orden de juego · hora {_zona_corta(zona)}",
-             ha="center", fontsize=15, color=GRIS)
+    fig = _lienzo(f"Semana {semana}", "Mis pronósticos",
+                  f"En orden de juego · hora {_zona_corta(zona)}",
+                  tema=f"Pronósticos · semana {semana}")
 
     # Renglones: encabezado de día + un renglón por partido
     filas, dia_actual = [], "∅"
@@ -1023,62 +1427,72 @@ def graf_picks(week_games, semana, threshold, ruta, zona=ZONA_HORARIA):
             dia_actual = dia
         filas.append(("juego", r))
     n_dias = sum(t == "dia" for t, _ in filas)
-    # Encabezados de columna
-    fig.text(0.215, 0.735, "EQUIPO GANADOR", ha="center", va="center", fontsize=12,
-             fontweight="bold")
-    fig.text(0.72, 0.735, "PROBABILIDAD DE VICTORIA", ha="center", va="center", fontsize=12,
-             fontweight="bold")
-    fig.add_artist(plt.Line2D([0.075, 0.925], [0.724, 0.724], color=GRIS, lw=1))
 
-    H_DIA, GAP = 0.95, 0.35
+    der = ANCHO_PX - MARGEN
+    XH, XFAV, XVS, XRIV, XLOC, XB0, XB1 = MARGEN + 10, 210, 272, 335, 385, 530, der - 10
+    _texto(fig, XH, 532, "HORA", 16, TENUE, bold=True)
+    _texto(fig, XFAV, 532, "FAVORITO", 16, TENUE, bold=True, ha="center")
+    _texto(fig, XRIV, 532, "RIVAL", 16, TENUE, bold=True, ha="center")
+    _texto(fig, XB0, 532, "PROBABILIDAD DE VICTORIA", 16, TENUE, bold=True)
+    _hline(fig, MARGEN, der, 552)
+
+    H_DIA, GAP = 0.85, 0.3
     unidades = (len(filas) - n_dias) + H_DIA * n_dias + GAP * (n_dias - 1)
-    top, bottom = 0.715, 0.228
-    u = (top - bottom) / unidades
-    u_px = u * H * DPI
-    fav_px = int(min(60, u_px * 0.84))
-    riv_px = int(fav_px * 0.75)
+    top, bottom = 562, 1548
+    u = min(56, (bottom - top) / unidades)
+    lider = g["p_fav"].idxmax()
 
     y, primero, sin_pick, hora_prev = top, True, False, None
     for tipo, r in filas:
         if tipo == "dia":
             if not primero:
-                y -= GAP * u
+                y += GAP * u
             primero, hora_prev = False, None
-            texto = _fmt_dia(r.kickoff).upper() if pd.notna(r.kickoff) else "POR DEFINIR"
-            fig.text(0.075, y - H_DIA * u / 2, texto, fontsize=14, fontweight="bold",
-                     color=ACENTO, va="center")
-            y -= H_DIA * u
+            texto = _fmt_dia(r.kickoff).upper() if pd.notna(r.kickoff) else "FECHA POR CONFIRMAR"
+            _texto(fig, MARGEN, y + H_DIA * u / 2, texto, 18, TEXTO, bold=True)
+            y += H_DIA * u
             continue
 
-        yc = y - u / 2
+        yc = y + u / 2
+        es_lider = r.Index == lider
         es_pick = r.p_fav > threshold
         sin_pick |= not es_pick
-        hora = f"{r.kickoff:%H:%M}" if pd.notna(r.kickoff) else ""
+        if es_lider:
+            _caja(fig, MARGEN, y + 2, der, y + u - 2, PANEL)
+        confirmada = pd.notna(r.kickoff) and getattr(r, "hora_confirmada", True)
+        hora = f"{r.kickoff:%H:%M}" if confirmada else "por confirmar"
         if hora != hora_prev:          # la hora solo cuando cambia
-            fig.text(0.075, yc, hora, fontsize=13, color=GRIS, va="center")
+            _texto(fig, XH, yc, hora, 21 if confirmada else 15, TEXTO2 if confirmada else TENUE)
             hora_prev = hora
-        _logo(fig, r.favorito, 0.215, yc, fav_px)
-        fig.text(0.29, yc, "vs", fontsize=13, color=GRIS, va="center", ha="center")
-        _logo(fig, r.rival, 0.35, yc, riv_px, alpha=0.6)
-        fig.text(0.405, yc, "en casa" if r.fav_local else "de visita",
-                 fontsize=12, color=GRIS, va="center")
+        _logo(fig, r.favorito, XFAV, yc, 36)
+        _texto(fig, XVS, yc, "vs", 16, TENUE, ha="center")
+        _logo(fig, r.rival, XRIV, yc, 32)
+        _texto(fig, XLOC, yc, "en casa" if r.fav_local else "de visita", 21, TEXTO2)
+        # un decimal: en un 50-50 redondeado se ve igual quién es el favorito (50.3 vs 49.7)
+        p_fav, p_riv = par_decimal(r.p_fav)
+        # confianza alta (≥ ALTA_CONFIANZA) en Cherry Tomato, media en Blueberry
+        color = (NEUTRO if not es_pick else
+                 ROJO if r.p_fav >= ALTA_CONFIANZA else AZUL)
+        _barra(fig, XB0, yc - u * 0.31, XB1, yc + u * 0.31, [(p_fav, color), (p_riv, LINEA)], 21,
+               decimales=1)
+        y += u
 
-        bar = fig.add_axes([0.52, yc - u * 0.24, 0.285, u * 0.48], facecolor="none")
-        color = ACENTO if r.p_fav >= ALTA_CONFIANZA else FRIO
-        bar.barh([0], [r.p_fav], color=color, height=1)
-        bar.barh([0], [1 - r.p_fav], left=r.p_fav, color=PISTA, height=1)
-        bar.set_xlim(0, 1)
-        bar.set_ylim(-0.5, 0.5)
-        bar.axis("off")
-        fig.text(0.83, yc, fmt_pct(r.p_fav), fontsize=17, fontweight="bold", va="center",
-                 color=TINTA if es_pick else GRIS)
-        y -= u
-
-    leyenda = f"■ confianza alta (≥ {ALTA_CONFIANZA:.0%})     ■ confianza media"
-    fig.text(0.5, 0.205, leyenda, ha="center", fontsize=13, color=GRIS)
+    r = g.loc[lider]
+    p = par_decimal(r.p_fav)[0]
+    # Leyenda: cuadrito de color + texto gris, centrada
+    items = [(ROJO, f"Confianza alta ({ALTA_CONFIANZA:.0%} o más)"), (AZUL, "Confianza media")]
     if sin_pick:
-        fig.text(0.5, 0.188, f"En gris: sin pick (≤ {threshold:.0%})", ha="center",
-                 fontsize=12, color=GRIS)
+        items.append((NEUTRO, f"Sin pronóstico (≤ {threshold:.0%})"))
+    lado, sep, gap = _e(18), _e(10), _e(40)
+    anchos = [lado + sep + _ancho_texto(t, 18 * _FMT.escala, bold=False) for _, t in items]
+    x = 540 - (sum(anchos) + gap * (len(items) - 1)) / 2
+    yl = y + 34
+    for (color, t), w in zip(items, anchos):
+        _caja(fig, x, yl - 9, x + lado, yl + 9, color, radio=3)
+        _texto(fig, x + lado + sep, yl, t, 18, TEXTO2)
+        x += w + gap
+    notas = f"Aun con {p:.1f}%, {r.favorito} no gana {100 - round(p)} de cada 100 veces"
+    _texto(fig, 540, y + 72, notas, 15, TENUE, ha="center")
     return _guardar(fig, ruta)
 
 
@@ -1087,48 +1501,93 @@ def _envolver(texto, ancho=44):
     return "\n".join(textwrap.fill(p, ancho) for p in texto.split("\n"))
 
 
-def graf_duelo(r, etiqueta, explicacion, ruta, zona=ZONA_HORARIA, rec=None, rank=None):
-    """Un partido: récord, escudos, barra de probabilidad y el comentario."""
+BAJAS_MAX = 3   # renglones de nombres por equipo en la tarjeta de cada partido
+
+
+def _baja_corta(item, largo=40):
+    """'Jauan Jennings (WRTE, Out sem. 9)' -> 'Jauan Jennings (WR/TE, Out sem. 9)'."""
+    t = item.replace("(WRTE,", "(WR/TE,").replace(", otro equipo)", ", ya no está)")
+    return t if len(t) <= largo else t[: largo - 1].rstrip() + "…"
+
+
+def _bloque_bajas(fig, r, y0):
+    """
+    Debajo de la tabla, alineado con cada escudo: cuánto Elo le resta el modelo
+    al equipo por sus bajas y quién falta (todas las posiciones). Regresa la y
+    donde termina el bloque.
+    """
+    _texto(fig, 540, y0, "BAJAS Y LESIONES", 16, TENUE, bold=True, ha="center")
+    filas_max = 0
+    for cx, bajas, aj in ((270, r.bajas_away, r.ajuste_elo_away),
+                          (810, r.bajas_home, r.ajuste_elo_home)):
+        lista = [b for b in str(bajas or "").split("; ") if b and b != "nan"]
+        aj = float(aj or 0.0)
+        if aj <= -5:
+            _texto(fig, cx, y0 + 38, f"{aj:+.0f} Elo".replace("-", "−"), 24, ROJO_TXT,
+                   bold=True, ha="center")
+        elif lista:
+            _texto(fig, cx, y0 + 38, "No mueven el pronóstico", 19, TEXTO2, ha="center")
+        else:
+            _texto(fig, cx, y0 + 38, "Sin bajas reportadas", 19, TEXTO2, ha="center")
+        if len(lista) > BAJAS_MAX:
+            lista = lista[: BAJAS_MAX - 1] + [f"+{len(lista) - BAJAS_MAX + 1} más"]
+        for i, b in enumerate(lista):
+            _texto(fig, cx, y0 + 72 + 28 * i, _baja_corta(b), 17, TEXTO2, ha="center")
+        filas_max = max(filas_max, len(lista))
+    fin = y0 + 72 + 28 * max(filas_max - 1, 0) + 22
+    _hline(fig, MARGEN, ANCHO_PX - MARGEN, fin)
+    return fin
+
+
+def graf_duelo(r, etiqueta, explicacion, ruta, zona=ZONA_HORARIA, rec=None, rank=None,
+               tema="Pronósticos"):
+    """Un partido: escudos, barra de probabilidad, tabla comparativa y el comentario."""
     rec, rank = rec or {}, rank or {}
-    fig = _lienzo(etiqueta, f"{r.away_team} @ {r.home_team}")
-    fig.text(0.5, 0.762, _fmt_fecha_hora(r.kickoff, zona), ha="center",
-             fontsize=16, color=GRIS)
+    fig = _lienzo(etiqueta, f"{r.away_team} @ {r.home_team}",
+                  _fmt_fecha_hora(r.kickoff, zona, getattr(r, "hora_confirmada", True)), tema=tema)
 
-    p_loc, p_vis = float(r.p_home_pre), float(r.p_away_pre)
-    fav_vis = p_vis > p_loc
-    for team, cx in ((r.away_team, 0.27), (r.home_team, 0.73)):
-        if team in rec:   # récord arriba del escudo
-            fig.text(cx, 0.725, "RÉCORD", ha="center", fontsize=12, color=GRIS,
-                     fontweight="bold")
-            fig.text(cx, 0.700, fmt_record(rec[team]), ha="center", va="center",
-                     fontsize=28, fontweight="bold")
-        _logo(fig, team, cx, 0.600, 240)
+    p_vis, p_loc = par_decimal(r.p_away_pre)   # un decimal: 50.3 vs 49.7, no 50 vs 50
+    fav_vis = float(r.p_away_pre) > float(r.p_home_pre)
+    a, h = r.away_team, r.home_team
+    for team, cx, rol, fav in ((a, 270, "visitante", fav_vis), (h, 810, "local", not fav_vis)):
+        _logo(fig, team, cx, 620, 76)
+        _texto(fig, cx, 706, team, 32, TEXTO, bold=fav, ha="center")
+        _texto(fig, cx, 744, rol, 21, TEXTO2, ha="center")
+    _texto(fig, 540, 620, "@", 32, TENUE, ha="center")
 
-    ax = fig.add_axes([0.08, 0.455, 0.84, 0.06], facecolor="none")
-    ax.barh([0], [p_vis], color=ACENTO if fav_vis else FRIO, height=1)
-    ax.barh([0], [p_loc], left=p_vis, color=FRIO if fav_vis else ACENTO, height=1)
-    ax.axvline(0.5, color=TINTA, lw=1.5, ls="--")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(-0.55, 0.55)
-    ax.axis("off")
+    _barra(fig, MARGEN, 806, ANCHO_PX - MARGEN, 898,
+           [(p_vis, AZUL if fav_vis else LINEA), (p_loc, LINEA if fav_vis else AZUL)], 40,
+           decimales=1)
+    p_fav, fav = (p_vis, a) if fav_vis else (p_loc, h)
+    _texto(fig, 540, 932, f"Aun con {p_fav:.1f}%, {fav} no gana {100 - round(p_fav)} de cada 100 veces",
+           15, TENUE, ha="center")
 
-    txt_vis, txt_loc = fmt_par(p_vis, p_loc)
+    # Tabla comparativa: en negritas el valor que favorece
+    filas = []
+    if a in rec and h in rec:
+        filas.append(("RÉCORD", fmt_record(rec[a]), fmt_record(rec[h]),
+                      np.sign(_pct_victorias(rec[a]) - _pct_victorias(rec[h]))))
+    ea, eh = float(r.elo_away_pre), float(r.elo_home_pre)
+    filas.append(("ELO", _miles(ea), _miles(eh), np.sign(round(ea) - round(eh))))
+    if a in rank and h in rank:
+        filas.append(("RANKING ELO", f"#{rank[a]}", f"#{rank[h]}", np.sign(rank[h] - rank[a])))
+    y = 990
+    _hline(fig, MARGEN, ANCHO_PX - MARGEN, y)
+    for nombre, va_, vh, mejor in filas:
+        yc = y + 28
+        _texto(fig, 270, yc, va_, 30, TEXTO if mejor > 0 else TEXTO2, bold=mejor > 0, ha="center")
+        _texto(fig, 540, yc, nombre, 16, TENUE, bold=True, ha="center")
+        _texto(fig, 810, yc, vh, 30, TEXTO if mejor < 0 else TEXTO2, bold=mejor < 0, ha="center")
+        y += 56
+        _hline(fig, MARGEN, ANCHO_PX - MARGEN, y)
 
-    fig.text(0.08, 0.435, txt_vis, fontsize=40, fontweight="bold", va="top",
-         color=ACENTO if fav_vis else GRIS)
-    fig.text(0.92, 0.435, txt_loc, fontsize=40, fontweight="bold", va="top",
-            ha="right", color=GRIS if fav_vis else ACENTO)
-    
-    def _rk(team):
-        return f" (#{rank[team]})" if team in rank else ""
-
-    fig.text(0.08, 0.372, f"visitante · Elo {r.elo_away_pre:.0f}{_rk(r.away_team)}",
-             fontsize=16, color=GRIS)
-    fig.text(0.92, 0.372, f"local · Elo {r.elo_home_pre:.0f}{_rk(r.home_team)}",
-             fontsize=16, color=GRIS, ha="right")
-    texto = _envolver(explicacion)
-    fs = 19 if texto.count("\n") < 3 else 18
-    fig.text(0.5, 0.285, texto, ha="center", va="center", fontsize=fs, linespacing=1.55)
+    # Bajas y lesiones (solo Modelo 2: games trae bajas_* y ajuste_elo_*)
+    ys = y + 96
+    if hasattr(r, "bajas_home"):
+        ys = _bloque_bajas(fig, r, y + 32) + 76
+    _seccion(fig, ys, "!", "Lo que ve el modelo", "¿A qué hay que ponerle atención?")
+    _texto(fig, MARGEN, ys + 66, _envolver(explicacion, 60), 25, TEXTO, va="top",
+           linespacing=1.5)
     return _guardar(fig, ruta)
 
 
@@ -1139,12 +1598,17 @@ def _pct(x):
     return "—" if pd.isna(x) else f"{x:.1%}"
 
 
-def escribir_resumen(ruta, semana, threshold, tabla, calib, ev, week_games, destacados, zona):
-    L = [f"# Semana {semana} · Pronosticando la NFL con un modelo de ELO", ""]
+def escribir_resumen(ruta, semana, threshold, tabla, calib, ev, week_games, destacados, zona,
+                     seccion_modelos=None, titulo=None, nota_calibracion=None):
+    L = [titulo or f"# Semana {semana} · Pronosticando la NFL con un modelo de ELO", ""]
     if len(tabla):
         u = tabla.iloc[-1]
         w = int(u.semana)
-        L += [f"## ¿Cómo va el modelo? (semanas 1–{w} · pick si prob. > {threshold:.0%})", "",
+        L += [f"## ¿Cómo va el modelo? (semanas 1–{w} · pick si prob. > {threshold:.0%})", ""]
+        if nota_calibracion:
+            L += [f"_Historial publicado · {nota_calibracion[1]} (pronósticos congelados "
+                  "antes de cada partido)._", ""]
+        L += [
               f"- Récord del modelo en la temporada (aciertos-fallos-empates): "
               f"**{u.acum_record} ({_pct(u.acum_pct_aciertos)})**",
               f"- Semana {w}: {u.record} ({_pct(u.pct_aciertos)})",
@@ -1169,14 +1633,20 @@ def escribir_resumen(ruta, semana, threshold, tabla, calib, ev, week_games, dest
             L += [f"- El batacazo de la semana {w}: **{b.ganador}** ganó con solo "
                   f"{b.p_ganador:.0%} de probabilidad ({b.away_team} {int(b.away_score)}–"
                   f"{int(b.home_score)} {b.home_team})"]
-        L += ["", "### Calibración (temporada)", "",
-              "| Confianza | Partidos | Récord | Prob. media | % real |",
+        L += ["", "### Calibración (temporada)", ""]
+        if nota_calibracion:
+            L += [f"_Historial publicado · {nota_calibracion[1]} "
+                  "(gráfica 11_calibracion)._", ""]
+        L += ["| Confianza | Partidos | Récord | Prob. media | % real |",
               "|---|---|---|---|---|"]
         for c in calib.itertuples():
             if c.partidos:
                 L.append(f"| {c.rango} | {c.partidos} | {c.record} | "
                          f"{c.prob_media:.0%} | {c.pct_real:.0%} |")
         L.append("")
+
+    if seccion_modelos:
+        L += seccion_modelos + [""]
 
     L += [f"## Picks de la semana {semana} (hora {_zona_corta(zona)})", ""]
     for r in week_games.sort_values(["kickoff", "game_id"], na_position="last").itertuples():
@@ -1191,13 +1661,113 @@ def escribir_resumen(ruta, semana, threshold, tabla, calib, ev, week_games, dest
     return ruta
 
 
+def comparar_modelos(games, m2, semana, season, threshold, carpeta, registrar=True,
+                     origen="semanal"):
+    """
+    Modelo 1 (Elo) vs Modelo 2 (Elo + ausencias):
+      1. Congela en el libro los pronósticos de ambos para `semana` (si registrar).
+      2. Evalúa lo congelado de las semanas anteriores (comparacion_modelos.csv).
+      3. Tabla de la semana con los ausentes y el ajuste (ausencias_semana_XX.csv).
+      4. Regresa las líneas de la sección "Modelo 1 vs Modelo 2" para resumen.md.
+    """
+    g2 = m2["enriquecido"]
+    params = f"{m2['modo']}|{m2['params'].get('calibrado_en') or 'sin calibrar'}"
+    if registrar:
+        n1 = libro_pron.registrar_pronosticos(games, "elo_base", semana, season, origen,
+                                              params="base")
+        n2 = libro_pron.registrar_pronosticos(g2, "elo_ausencias", semana, season, origen,
+                                              params=params)
+        ruta = libro_pron.ruta_libro(season)
+        print(f"Libro: +{len(n1)} pronósticos Modelo 1 · +{len(n2)} Modelo 2 "
+              f"→ {ruta.relative_to(ROOT) if ruta.is_relative_to(ROOT) else ruta}")
+    else:
+        print("Libro: sin cambios (--sin-actualizar)")
+
+    libro = libro_pron.cargar_libro(season)
+    tabla, ev = libro_pron.evaluar_modelos(libro, games, threshold, hasta_semana=semana)
+    res = libro_pron.resumen_comparacion(tabla)
+    des = libro_pron.desacuerdos(ev)
+    if len(tabla):
+        tabla.to_csv(carpeta / "comparacion_modelos.csv", index=False)
+    if len(des):
+        des.to_csv(carpeta / "desacuerdos_modelos.csv", index=False)
+
+    # ── La semana de los picks: dónde difieren y por qué ─────────────────────
+    sem = g2[g2["week"] == semana].merge(
+        games[["game_id", "p_home_pre", "favorito", "p_fav"]].rename(
+            columns={"p_home_pre": "p_home_m1", "favorito": "favorito_m1", "p_fav": "p_fav_m1"}),
+        on="game_id")
+    sem = sem.rename(columns={"p_home_pre": "p_home_m2", "favorito": "favorito_m2",
+                              "p_fav": "p_fav_m2"})
+    sem["dif_p_home"] = (sem["p_home_m2"] - sem["p_home_m1"]).round(4)
+    cols = ["week", "kickoff", "away_team", "home_team", "p_home_m1", "p_home_m2", "dif_p_home",
+            "favorito_m1", "p_fav_m1", "favorito_m2", "p_fav_m2", "ajuste_elo_home",
+            "ajuste_elo_away", "ausentes_home", "ausentes_away", "fuente_reporte"]
+    sem = sem.sort_values(["kickoff", "game_id"], na_position="last")[cols]
+    sem.to_csv(carpeta / f"ausencias_semana_{semana:02d}.csv", index=False)
+
+    # ── Texto ────────────────────────────────────────────────────────────────
+    L = ["## Modelo 1 (Elo) vs Modelo 2 (Elo + ausencias)", ""]
+    if len(res):
+        w = int(res["hasta_semana"].iat[0])
+        vig = libro_pron.pronostico_vigente(libro)
+        backfill = vig[(vig["week"] < semana) & (vig["origen"] == "backfill")]["week"]
+        L += [f"Pronósticos congelados antes de cada kickoff · semanas 1–{w} · "
+              f"{int(res['partidos'].iat[0])} partidos · pick si prob. > {threshold:.0%}", "",
+              "| Modelo | Récord | % aciertos | Brier | Log loss |", "|---|---|---|---|---|"]
+        for r in res.itertuples():
+            L.append(f"| {r.nombre} | {r.record} | {_pct(r.pct_aciertos)} | "
+                     f"{r.brier:.3f} | {r.log_loss:.3f} |")
+        if pd.notna(res["vegas_brier"].iat[0]):
+            L.append(f"| Las Vegas (referencia) | — | {_pct(res['vegas_pct'].iat[0])} | "
+                     f"{res['vegas_brier'].iat[0]:.3f} | — |")
+        mejor = res.sort_values("brier").iloc[0]
+        L += ["", f"- Mejor Brier hasta ahora: **{mejor.nombre}** (más bajo = mejor)."]
+        if len(des):
+            c = des["acerto"].value_counts()
+            L.append(f"- Eligieron distinto favorito en {len(des)} partidos → acertó el "
+                     f"Modelo 1 en {c.get('Modelo 1', 0)} y el Modelo 2 en {c.get('Modelo 2', 0)}.")
+        if len(backfill):
+            L.append(f"- Semanas {int(backfill.min())}–{int(backfill.max())}: reconstruidas "
+                     "(backfill) con el reporte final de lesiones de cada semana.")
+    else:
+        L += ["Aún no hay partidos jugados con pronóstico congelado de ambos modelos "
+              "(corre `python3 src/compare_models.py --backfill` para las semanas ya jugadas)."]
+
+    fuente = sem["fuente_reporte"].mode().iat[0] if len(sem) else "—"
+    dif = sem[(sem["dif_p_home"].abs() >= 0.02) | (sem["favorito_m1"] != sem["favorito_m2"])]
+    dif = dif.reindex(dif["dif_p_home"].abs().sort_values(ascending=False).index)
+    L += ["", f"### Semana {semana}: dónde difieren (ausencias según {fuente})", ""]
+    if not len(dif):
+        L.append("- Los dos modelos dan prácticamente lo mismo en todos los partidos.")
+    for r in dif.itertuples():
+        cambio = " · **cambia el favorito**" if r.favorito_m1 != r.favorito_m2 else ""
+        L.append(f"- {r.away_team} @ {r.home_team}: Modelo 1 {r.favorito_m1} {r.p_fav_m1:.0%} · "
+                 f"Modelo 2 {r.favorito_m2} {r.p_fav_m2:.0%}{cambio}")
+        for equipo, aus, aj in ((r.away_team, r.ausentes_away, r.ajuste_elo_away),
+                                (r.home_team, r.ausentes_home, r.ajuste_elo_home)):
+            if isinstance(aus, str) and aus:
+                L.append(f"    - {equipo} ({aj:+.0f} Elo): {aus}")
+    if str(fuente).startswith("provisional"):
+        L += ["", "_Ojo: el reporte de lesiones de esta semana aún no sale. Vuelve a correr "
+              "`python3 src/weekly_content.py --solo-pronosticos` el viernes/sábado para "
+              "congelar la versión final del Modelo 2._"]
+
+    for linea in L:
+        if linea.startswith("|") or linea.startswith("- Mejor") or linea.startswith("- Eligieron"):
+            print("   ", linea)
+    return {"tabla": tabla, "resumen": res, "evaluacion": ev, "desacuerdos": des,
+            "semana": sem, "seccion": L}
+
+
 def escribir_comentarios(ruta, semana, partidos, rec, rank, zona):
     """comentarios.md — texto listo para copiar en cada historia."""
     L = [f"# Semana {semana} · Historias por partido", ""]
     for i, r, texto in partidos:
-        L += [f"## {i:02d} · {r.away_team} @ {r.home_team} — {_fmt_fecha_hora(r.kickoff, zona)}", "",
-              f"Pick: **{r.favorito} {r.p_fav:.0%}** · Elo {r.elo_away_pre:.0f} "
-              f"(#{rank.get(r.away_team, '–')}) vs {r.elo_home_pre:.0f} "
+        L += [f"## {i:02d} · {r.away_team} @ {r.home_team} — "
+              f"{_fmt_fecha_hora(r.kickoff, zona, getattr(r, 'hora_confirmada', True))}", "",
+              f"Favorito: **{r.favorito} {r.p_fav:.0%}** · Elo {r.elo_away_pre:,.0f} "
+              f"(#{rank.get(r.away_team, '–')}) vs {r.elo_home_pre:,.0f} "
               f"(#{rank.get(r.home_team, '–')}) · Récord {r.away_team} "
               f"{fmt_record(rec.get(r.away_team, (0, 0, 0)))}, {r.home_team} "
               f"{fmt_record(rec.get(r.home_team, (0, 0, 0)))}", "",
@@ -1217,19 +1787,33 @@ def _slug(texto):
 
 def generar_contenido(season=SEASON, threshold=THRESHOLD, semana=None, actualizar=True,
                       out_dir=None, zona=ZONA_HORARIA, logos_dir=None, top_n=TOP_N,
-                      historias=True):
+                      historias=True, formatos=None, ausencias=True, modo=None,
+                      solo_pronosticos=False, imagenes_modelo_2=True):
     """
     Corre todo el flujo semanal y regresa un dict con los DataFrames y las rutas.
 
     semana    : semana de los picks. None = la próxima por jugarse. Las métricas
                 usan solo las semanas anteriores (lo que se sabía en ese momento).
     historias : True = una imagen por partido en partidos/ + comentarios.md.
+    formatos  : tamaños a generar (claves de FORMATOS). None = todos.
+    ausencias : True = corre también el Modelo 2 (Elo + ausencias), congela los
+                pronósticos de ambos en el libro (data/processed/pronosticos/) y
+                agrega la comparación al resumen. Las imágenes usan el Modelo 1.
+    modo      : 'overlay' | 'integrado' para el Modelo 2 (None = el calibrado).
+    solo_pronosticos : re-registra la semana con el reporte de lesiones más
+                reciente y escribe la comparación, sin regenerar imágenes
+                (pensado para correrlo viernes/sábado).
+    imagenes_modelo_2 : True = además genera el set completo de imágenes, métricas
+                y resumen.md del Modelo 2 en reels/semana_XX/modelo_2/ (el pie
+                de cada imagen dice "ELO + AUSENCIAS").
     """
     global LOGOS_DIR
     if logos_dir:
         LOGOS_DIR = Path(logos_dir)
     if not 0.5 <= threshold < 1:
         raise ValueError("threshold debe estar entre 0.50 y 1 (ej. 0.5, 0.6)")
+    if solo_pronosticos and not ausencias:
+        raise ValueError("--solo-pronosticos necesita el Modelo 2 (quita --sin-ausencias)")
 
     print("── 1 · Datos " + "─" * 60)
     schedule, final_elos = cargar_datos(season)
@@ -1237,6 +1821,19 @@ def generar_contenido(season=SEASON, threshold=THRESHOLD, semana=None, actualiza
     if actualizar:
         guardar_archivos(games_df, elo_evolution_df, season)
     games = enriquecer(games_df, schedule, zona)
+
+    m2 = None
+    if ausencias:
+        from src.elo_ausencias import modelo_ausencias_temporada
+        print("── 1b · Modelo 2: Elo + ausencias " + "─" * 39)
+        m2 = modelo_ausencias_temporada(schedule, final_elos, season, modo)
+        if actualizar:
+            m2["games"].to_csv(DATA_DIR / f"weekly_predictions_ausencias_{season}.csv", index=False)
+            m2["elo_evolution"].to_csv(DATA_DIR / f"elo_evolution_ausencias_{season}.csv",
+                                       index=False)
+            print(f"Guardado: weekly_predictions_ausencias_{season}.csv, "
+                  f"elo_evolution_ausencias_{season}.csv")
+        m2["enriquecido"] = enriquecer(m2["games"], schedule, zona)
 
     if semana is None:
         semana = int(current_week_probabilities(games_df)["week"].iloc[0])
@@ -1247,10 +1844,84 @@ def generar_contenido(season=SEASON, threshold=THRESHOLD, semana=None, actualiza
     carpeta.mkdir(parents=True, exist_ok=True)
     print(f"Semana de los picks : {semana}  →  {carpeta}")
 
-    print("── 2 · Métricas " + "─" * 57)
+    seccion_modelos = None
+    if m2 is not None:
+        print("── 1c · Libro de pronósticos (Modelo 1 vs Modelo 2) " + "─" * 21)
+        comp = comparar_modelos(games, m2, semana, season, threshold, carpeta,
+                                registrar=actualizar,
+                                origen="actualizacion" if solo_pronosticos else "semanal")
+        seccion_modelos = comp["seccion"]
+        if solo_pronosticos:
+            ruta = carpeta / "modelos.md"
+            ruta.write_text("\n".join(comp["seccion"]) + "\n", encoding="utf-8")
+            print("✓", ruta.relative_to(ROOT) if ruta.is_relative_to(ROOT) else ruta)
+            return {"semana": semana, "games": games, "modelo_2": m2, "comparacion": comp,
+                    "carpeta": carpeta}
+
+    print("── 2-3 · Modelo 1 (Elo) · métricas e imágenes " + "─" * 27)
+    out = metricas_e_imagenes(games, elo_tab, semana, carpeta, threshold, zona, top_n,
+                              historias, formatos, seccion_modelos)
+
+    if m2 is not None and imagenes_modelo_2:
+        print("── 2-3 · Modelo 2 (Elo + ausencias) · métricas e imágenes " + "─" * 15)
+        # Calibración del historial PUBLICADO: Modelo 1 antes del cambio, Modelo 2 desde él
+        calib_pub, nota, ev_pub = None, None, None
+        cambio = CAMBIO_MODELO.get(season)
+        if cambio is not None and semana >= cambio:
+            ev_pub = libro_pron.evaluar_publicado(libro_pron.cargar_libro(season), games,
+                                                  cambio, threshold, hasta_semana=semana)
+            if len(ev_pub):
+                calib_pub = calibracion(ev_pub)
+                nota = nota_cambio_modelo(semana, cambio)
+                print(f"   Calibración publicada: Modelo 1 sem. 1–{cambio - 1} + "
+                      f"Modelo 2 sem. {cambio}–{semana - 1} ({len(ev_pub)} partidos)"
+                      if semana > cambio else
+                      f"   Calibración publicada: Modelo 1 sem. 1–{cambio - 1} "
+                      f"({len(ev_pub)} partidos) + aviso del cambio")
+        with usar_modelo("Elo + ausencias"):
+            out2 = metricas_e_imagenes(
+                m2["enriquecido"], tabla_elo(m2["elo_evolution"]), semana, carpeta / "modelo_2",
+                threshold, zona, top_n, historias, formatos, seccion_modelos,
+                titulo=f"# Semana {semana} · Modelo 2: Elo + ausencias",
+                calib_override=calib_pub, nota_calibracion=nota,
+                ev_override=ev_pub if ev_pub is not None and len(ev_pub) else None,
+                cambio=cambio)
+        m2["salida"] = out2
+        out["rutas"] += out2["rutas"]
+
+    return {"semana": semana, "games": games, "carpeta": carpeta, "modelo_2": m2, **out}
+
+
+def metricas_e_imagenes(games, elo_tab, semana, carpeta, threshold, zona, top_n=TOP_N,
+                        historias=True, formatos=None, seccion_modelos=None, titulo=None,
+                        calib_override=None, nota_calibracion=None, ev_override=None,
+                        cambio=None):
+    """
+    Métricas (semanas < semana), todas las imágenes y resumen.md de UN modelo.
+    games: enriquecer() del modelo · elo_tab: tabla_elo() de su evolución de Elo.
+    calib_override: calibración a usar en 11_calibracion.png, calibracion.csv y
+        resumen.md en lugar de la del propio modelo (la del modelo se guarda
+        aparte en calibracion_modelo.csv). nota_calibracion: texto de la gráfica.
+    ev_override: evaluación del historial PUBLICADO (Modelo 1 antes de `cambio`,
+        Modelo 2 desde `cambio`) para 01_aciertos_por_semana.png,
+        metricas_semanales.csv, evaluacion_partidos.csv y resumen.md. Las del
+        propio modelo se guardan en *_modelo.csv.
+    """
+    carpeta = Path(carpeta)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    print("   Métricas")
     ev = evaluar_partidos(games[games["week"] < semana], threshold)
+    ev_modelo = ev
+    if ev_override is not None:
+        ev.to_csv(carpeta / "evaluacion_partidos_modelo.csv", index=False)
+        (metricas_por_semana(ev) if len(ev) else pd.DataFrame()).to_csv(
+            carpeta / "metricas_semanales_modelo.csv", index=False)
+        ev = ev_override
     tabla = metricas_por_semana(ev) if len(ev) else pd.DataFrame()
-    calib = calibracion(ev)
+    calib = calibracion(ev_modelo)
+    if calib_override is not None:
+        calib.to_csv(carpeta / "calibracion_modelo.csv", index=False)
+        calib = calib_override
     ev.to_csv(carpeta / "evaluacion_partidos.csv", index=False)
     tabla.to_csv(carpeta / "metricas_semanales.csv", index=False)
     calib.to_csv(carpeta / "calibracion.csv", index=False)
@@ -1264,57 +1935,68 @@ def generar_contenido(season=SEASON, threshold=THRESHOLD, semana=None, actualiza
     else:
         print("Aún no hay partidos jugados antes de esta semana.")
 
-    print("── 3 · Gráficas " + "─" * 57)
+    print("   Gráficas")
     week_games = games[games["week"] == semana]
     destacados = elegir_destacados(week_games)
     rec = records_equipos(games, semana)
     rank = elo_tab[semana].rank(ascending=False, method="min").astype(int).to_dict()
     rutas = []
-    with plt.rc_context(ESTILO):
-        if len(tabla):
-            rutas.append(graf_aciertos_semana(tabla, threshold, carpeta / "01_aciertos_por_semana.png"))
-        if semana > 1:
-            rutas.append(graf_suben_caen(
-                elo_tab[semana] - elo_tab[semana - 1], resultados_semana(games, semana - 1),
-                "Quién sube, quién cae", f"Cambio de Elo\nen la semana {semana - 1}",
-                carpeta / f"02_elo_semana_{semana - 1:02d}.png", n=top_n))
-        if semana > 2:   # en la semana 2 sería idéntica a la anterior
-            rutas.append(graf_suben_caen(
-                elo_tab[semana] - elo_tab[elo_tab.columns.min()], records(games, semana),
-                "Quién sube, quién cae", "Cambio de Elo\ndesde la pretemporada",
-                carpeta / "03_elo_temporada.png", n=top_n))
-        rutas.append(graf_top(elo_tab[semana], carpeta / "04_top_elo.png", n=top_n))
-        rutas.append(graf_picks(week_games, semana, threshold,
-                                carpeta / f"{semana - 1:02d}_picks_semana_{semana:02d}.png", zona))
-        for i, (etiqueta, r, texto) in enumerate(destacados, start=6):
-            nombre = f"{i:02d}_{_slug(etiqueta)}_{r.away_team}_{r.home_team}.png"
-            rutas.append(graf_duelo(r, etiqueta, texto, carpeta / nombre, zona, rec, rank))
-        if semana > 1:
-            rutas.append(graf_evolucion_elo(elo_tab, semana, carpeta / "09_evolucion_elo.png",
-                                            n=top_n))
-            rutas.append(graf_evolucion_divisiones(elo_tab, semana,
-                                                   carpeta / "10_evolucion_divisiones.png"))
+    # Las mismas imágenes en cada tamaño: reels/semana_XX/size_1, size_2, ...
+    for nombre_fmt in formatos or FORMATOS:
+        img = carpeta / nombre_fmt
+        with plt.rc_context(ESTILO), usar_formato(FORMATOS[nombre_fmt]):
+            if len(tabla):
+                rutas.append(graf_aciertos_semana(tabla, threshold, img / "01_aciertos_por_semana.png",
+                                                 cambio=cambio))
+            if semana > 1:
+                rutas.append(graf_suben_caen(
+                    elo_tab[semana] - elo_tab[semana - 1], resultados_semana(games, semana - 1),
+                    "Quién sube, quién cae", "Cambio de Elo", f"En la semana {semana - 1}",
+                    img / f"02_elo_semana_{semana - 1:02d}.png", n=top_n))
+            if semana > 2:   # en la semana 2 sería idéntica a la anterior
+                rutas.append(graf_suben_caen(
+                    elo_tab[semana] - elo_tab[elo_tab.columns.min()], records(games, semana),
+                    "Quién sube, quién cae", "Cambio de Elo", "Desde la pretemporada",
+                    img / "03_elo_temporada.png", n=top_n))
+            rutas.append(graf_top(elo_tab[semana], img / "04_top_elo.png", n=RANKING_N,
+                                  elo_previo=elo_tab[semana - 1] if semana > 1 else None,
+                                  semana=semana))
+            rutas.append(graf_picks(week_games, semana, threshold,
+                                    img / f"{semana - 1:02d}_picks_semana_{semana:02d}.png", zona))
+            for i, (etiqueta, r, texto) in enumerate(destacados, start=6):
+                nombre = f"{i:02d}_{_slug(etiqueta)}_{r.away_team}_{r.home_team}.png"
+                rutas.append(graf_duelo(r, etiqueta, texto, img / nombre, zona, rec, rank,
+                                        tema=f"Pronósticos · semana {semana}"))
+            if semana > 1:
+                rutas.append(graf_evolucion_elo(elo_tab, semana, img / "09_evolucion_elo.png",
+                                                n=top_n))
+                rutas.append(graf_evolucion_divisiones(elo_tab, semana,
+                                                       img / "10_evolucion_divisiones.png"))
+            if calib["partidos"].sum():
+                rutas.append(graf_calibracion(calib, img / "11_calibracion.png",
+                                              nota=nota_calibracion))
 
-        # Historias: una imagen por partido, en orden de juego, con su comentario
-        if historias:
-            orden = week_games.sort_values(["kickoff", "game_id"], na_position="last")
-            n, partidos = len(orden), []
-            for i, (_, r) in enumerate(orden.iterrows(), start=1):
-                texto = comentario_partido(r, rec, rank)
-                partidos.append((i, r, texto))
-                rutas.append(graf_duelo(
-                    r, f"Semana {semana} · Partido {i} de {n}", texto,
-                    carpeta / "partidos" / f"{i:02d}_{r.away_team}_{r.home_team}.png",
-                    zona, rec, rank))
-            rutas.append(escribir_comentarios(carpeta / "partidos" / "comentarios.md",
-                                              semana, partidos, rec, rank, zona))
+            # Historias: una imagen por partido, en orden de juego, con su comentario
+            if historias:
+                orden = week_games.sort_values(["kickoff", "game_id"], na_position="last")
+                n, partidos = len(orden), []
+                for i, (_, r) in enumerate(orden.iterrows(), start=1):
+                    texto = comentario_partido(r, rec, rank)
+                    partidos.append((i, r, texto))
+                    rutas.append(graf_duelo(
+                        r, f"Semana {semana} · Partido {i} de {n}", texto,
+                        img / "partidos" / f"{i:02d}_{r.away_team}_{r.home_team}.png",
+                        zona, rec, rank, tema=f"Pronósticos · semana {semana}"))
+                rutas.append(escribir_comentarios(img / "partidos" / "comentarios.md",
+                                                  semana, partidos, rec, rank, zona))
     rutas.append(escribir_resumen(carpeta / "resumen.md", semana, threshold, tabla, calib,
-                                  ev, week_games, destacados, zona))
+                                  ev, week_games, destacados, zona, seccion_modelos, titulo,
+                                  nota_calibracion))
     for r in rutas:
         print("✓", r.relative_to(ROOT) if r.is_relative_to(ROOT) else r)
 
-    return {"semana": semana, "games": games, "evaluacion": ev, "metricas": tabla,
-            "calibracion": calib, "destacados": destacados, "carpeta": carpeta, "rutas": rutas}
+    return {"evaluacion": ev, "metricas": tabla, "calibracion": calib,
+            "destacados": destacados, "rutas": rutas}
 
 
 def main(argv=None):
@@ -1332,11 +2014,25 @@ def main(argv=None):
     p.add_argument("--top", type=int, default=TOP_N, help="Equipos por lado en las gráficas de ELO")
     p.add_argument("--sin-historias", action="store_true",
                    help="No genera la imagen de cada partido (carpeta partidos/)")
+    p.add_argument("--formatos", nargs="+", choices=list(FORMATOS), default=None,
+                   help="Tamaños a generar: size_1 (1080x902), size_2 (1080x1920). Default: todos")
+    p.add_argument("--sin-ausencias", action="store_true",
+                   help="Solo el Modelo 1 (Elo base), como antes: sin Modelo 2 ni libro")
+    p.add_argument("--solo-pronosticos", action="store_true",
+                   help="Re-congela los pronósticos de la semana con el reporte de lesiones "
+                        "más reciente y escribe la comparación, sin regenerar imágenes")
+    p.add_argument("--modo", choices=["overlay", "integrado"], default=None,
+                   help="Modo del Modelo 2 (default: el que eligió la calibración)")
+    p.add_argument("--sin-imagenes-modelo-2", action="store_true",
+                   help="No genera las imágenes del Modelo 2 en semana_XX/modelo_2/")
     a = p.parse_args(argv)
     plt.switch_backend("Agg")
     generar_contenido(season=a.season, threshold=a.threshold, semana=a.semana,
                       actualizar=not a.sin_actualizar, out_dir=a.out, zona=a.zona,
-                      logos_dir=a.logos_dir, top_n=a.top, historias=not a.sin_historias)
+                      logos_dir=a.logos_dir, top_n=a.top, historias=not a.sin_historias,
+                      formatos=a.formatos, ausencias=not a.sin_ausencias, modo=a.modo,
+                      solo_pronosticos=a.solo_pronosticos,
+                      imagenes_modelo_2=not a.sin_imagenes_modelo_2)
 
 
 if __name__ == "__main__":
