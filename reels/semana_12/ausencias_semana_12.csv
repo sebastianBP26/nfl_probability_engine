@@ -1,0 +1,17 @@
+week,kickoff,away_team,home_team,p_home_m1,p_home_m2,dif_p_home,favorito_m1,p_fav_m1,favorito_m2,p_fav_m2,ajuste_elo_home,ajuste_elo_away,ausentes_home,ausentes_away,fuente_reporte
+12,2026-11-25 19:00:00-06:00,GB,LA,0.6052,0.564,-0.0412,LA,0.6052,LA,0.564,-42.8,-0.0,"Puka Nacua (WRTE, IR)",,provisional: reporte sem. 10
+12,2026-11-26 12:00:00-06:00,CHI,DET,0.5602,0.5566,-0.0036,DET,0.5602,DET,0.5566,-0.0,-0.0,,,provisional: reporte sem. 11
+12,2026-11-26 15:30:00-06:00,PHI,DAL,0.5638,0.6396,0.0758,DAL,0.5638,DAL,0.6396,-0.0,-80.1,,"Jalen Hurts (QB, inicia Joe Milton III)",provisional: reporte sem. 11
+12,2026-11-26 19:20:00-06:00,KC,BUF,0.6986,0.6927,-0.0059,BUF,0.6986,BUF,0.6927,-1.8,-6.6,,,provisional: reporte sem. 11
+12,2026-11-27 14:00:00-06:00,DEN,PIT,0.38,0.3954,0.0154,DEN,0.62,DEN,0.6046,-1.8,-1.8,,,provisional: reporte sem. 11
+12,2026-11-29 12:00:00-06:00,ATL,MIN,0.7611,0.727,-0.0341,MIN,0.7611,MIN,0.727,-20.1,-0.0,"Jordan Addison (WRTE, Out sem. 11)",,provisional: reporte sem. 11
+12,2026-11-29 12:00:00-06:00,BAL,HOU,0.658,0.7294,0.0714,HOU,0.658,HOU,0.7294,-0.0,-80.1,,"Lamar Jackson (QB, inicia Jacoby Brissett)",provisional: reporte sem. 11
+12,2026-11-29 12:00:00-06:00,NO,CIN,0.7304,0.7191,-0.0113,CIN,0.7304,CIN,0.7191,-6.6,-0.0,,,provisional: reporte sem. 11
+12,2026-11-29 12:00:00-06:00,NYG,IND,0.4218,0.3327,-0.0891,NYG,0.5782,NYG,0.6673,-110.3,-83.7,"Daniel Jones (QB, inicia Anthony Richardson); Josh Downs (WRTE, otro equipo)","Jaxson Dart (QB, inicia J.J. McCarthy)",provisional: reporte sem. 11
+12,2026-11-29 12:00:00-06:00,NYJ,MIA,0.5628,0.4745,-0.0883,MIA,0.5628,NYJ,0.5255,-83.7,-23.1,"Malik Willis (QB, inicia Kyle McCord)","Omar Cooper (WRTE, Out sem. 11)",provisional: reporte sem. 11
+12,2026-11-29 12:00:00-06:00,TEN,JAX,0.8579,0.8749,0.017,JAX,0.8579,JAX,0.8749,-1.8,-34.4,,"Wan'Dale Robinson (WRTE, IR)",provisional: reporte sem. 11
+12,2026-11-29 15:05:00-06:00,NE,LAC,0.3315,0.3156,-0.0159,NE,0.6685,NE,0.6844,-4.2,-6.6,,,provisional: reporte sem. 11
+12,2026-11-29 15:25:00-06:00,SEA,SF,0.6201,0.6783,0.0582,SF,0.6201,SF,0.6783,-0.0,-52.2,,"Sam Darnold (QB, Out sem. 10)",provisional: reporte sem. 11
+12,2026-11-29 15:25:00-06:00,WAS,ARI,0.4475,0.3295,-0.118,WAS,0.5525,WAS,0.6705,-110.3,-10.2,"Jacoby Brissett (QB, inicia Gardner Minshew); Michael Wilson (WRTE, IR)",,provisional: reporte sem. 11
+12,2026-11-29 19:20:00-06:00,LV,CLE,0.6786,0.698,0.0194,CLE,0.6786,CLE,0.698,-6.0,-4.2,,,provisional: reporte sem. 10
+12,2026-11-30 19:15:00-06:00,CAR,TB,0.5014,0.5142,0.0128,TB,0.5014,TB,0.5142,-14.7,-9.0,,,provisional: reporte sem. 11
